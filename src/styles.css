@@ -971,44 +971,18 @@ textarea {
   padding: 4px;
 }
 
-.qcp-output {
+.qcp-hint {
   border-top: 1px solid var(--border);
-  padding-top: 6px;
-}
-
-.qcp-output-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  padding: 6px 2px 0;
   font-size: 11px;
   color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.qcp-output-head button {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: 13px;
-}
-
-.qcp-output pre {
-  font-size: 11px;
-  background: var(--bg);
-  border-radius: 5px;
-  padding: 6px;
-  max-height: 160px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-family: Consolas, monospace;
-}
-
-.qcp-output-err {
+.qcp-hint-err {
   color: var(--danger);
-}
-
-.qcp-output-text {
-  color: var(--text);
 }
 
 /* ============ 弹窗 ============ */

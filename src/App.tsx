@@ -123,10 +123,7 @@ export default function App() {
           />
           {qcpOpen && (
             <div className="sidebar-qcp">
-              <QuickCommandPanel
-                sessionId={activeTab?.sessionId ?? null}
-                serverName={activeTab?.serverName ?? ""}
-              />
+              <QuickCommandPanel sessionId={activeTab?.sessionId ?? null} />
             </div>
           )}
         </aside>

@@ -1,35 +1,32 @@
 import { useState } from "react";
-import { execCommand } from "../api";
+import { writeTerminal } from "../api";
 import { useApp } from "../store/app";
 
 interface Props {
   sessionId: number | null;
-  serverName: string;
 }
 
-export default function QuickCommandPanel({ sessionId, serverName }: Props) {
+export default function QuickCommandPanel({ sessionId }: Props) {
   const settings = useApp((s) => s.settings);
   const updateSettings = useApp((s) => s.updateSettings);
-  const [output, setOutput] = useState<{ cmd: string; text: string; err?: string } | null>(null);
-  const [running, setRunning] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newCmd, setNewCmd] = useState("");
+  const [cmdSeq, setCmdSeq] = useState(0);
+  const [lastCmd, setLastCmd] = useState<string | null>(null);
 
-  const run = async (cmd: string) => {
+  // 点击后在终端窗口执行该命令(写入会话,由 shell 真正运行并把输出显示在终端里)
+  const run = (cmd: string) => {
     if (sessionId == null) {
-      setOutput({ cmd, text: "", err: "请先连接服务器" });
+      setHint("请先连接服务器");
       return;
     }
-    setRunning(true);
-    try {
-      const text = await execCommand(sessionId, cmd);
-      setOutput({ cmd, text });
-    } catch (e) {
-      setOutput({ cmd, text: "", err: String(e) });
-    } finally {
-      setRunning(false);
-    }
+    const b64 = btoa(unescape(encodeURIComponent(cmd + "\n")));
+    writeTerminal(sessionId, b64).catch(() => setHint("命令写入失败"));
+    setHint(null);
+    setLastCmd(cmd);
+    setCmdSeq((n) => n + 1);
   };
 
   const addCommand = async () => {
@@ -90,22 +87,12 @@ export default function QuickCommandPanel({ sessionId, serverName }: Props) {
         )}
       </div>
 
-      {output && (
-        <div className="qcp-output">
-          <div className="qcp-output-head">
-            <span>
-              {running ? "⏳ " : "📄 "}
-              {output.cmd} @ {serverName}
-            </span>
-            <button onClick={() => setOutput(null)}>×</button>
-          </div>
-          {output.err ? (
-            <pre className="qcp-output-err">{output.err}</pre>
-          ) : (
-            <pre className="qcp-output-text">{output.text || "(无输出)"}</pre>
-          )}
+      {lastCmd && (
+        <div className="qcp-hint" key={cmdSeq}>
+          已发送到终端：{lastCmd}
         </div>
       )}
+      {hint && <div className="qcp-hint qcp-hint-err">{hint}</div>}
     </div>
   );
 }

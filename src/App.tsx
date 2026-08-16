@@ -14,6 +14,23 @@ import type { ServerConfig } from "./types";
 // EditorModal 含 CodeMirror 全家桶,懒加载避免拖慢首屏
 const EditorModal = lazy(() => import("./components/EditorModal"));
 
+/** 剪贴板降级方案:兼容 Tauri 旧 webview 无 Clipboard API 的情况 */
+function fallbackCopy(text: string): boolean {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
   const init = useApp((s) => s.init);
   const tabs = useApp((s) => s.tabs);
@@ -27,6 +44,7 @@ export default function App() {
   const [editingFile, setEditingFile] = useState<{ sessionId: number; path: string } | null>(null);
   const [sftpCollapsed, setSftpCollapsed] = useState(false);
   const [qcpOpen, setQcpOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     init().catch(console.error);
@@ -44,6 +62,20 @@ export default function App() {
 
   const onCloseTab = (key: string) => closeTab(key);
 
+  const copyHost = () => {
+    if (!activeTab?.host) return;
+    const done = () => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(activeTab.host).then(done).catch(() => fallbackCopy(activeTab.host) && done());
+    } else {
+      fallbackCopy(activeTab.host);
+      done();
+    }
+  };
+
   return (
     <div
       className={`app ${settings.theme === "light" ? "theme-light" : "theme-dark"}`}
@@ -54,6 +86,19 @@ export default function App() {
           <span className="logo-mark">▮▮</span>
           <span className="logo-text">FinalShell Clone</span>
         </div>
+        {activeTab && activeTab.status !== "closed" && (
+          <div className="header-conn" title={`${activeTab.host} · ${activeTab.status}`}>
+            <span className={`conn-dot conn-${activeTab.status}`} />
+            <span className="conn-host">{activeTab.host}</span>
+            <button
+              className={`conn-copy ${copied ? "copied" : ""}`}
+              onClick={copyHost}
+              title={copied ? "已复制" : "复制 IP"}
+            >
+              {copied ? "✓" : "⧉"}
+            </button>
+          </div>
+        )}
         <div className="header-actions">
           <button className="btn btn-primary" onClick={() => setDialog({ mode: "new" })}>
             ➕ 新建连接

@@ -65,6 +65,7 @@ textarea {
 }
 
 .app-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -73,6 +74,80 @@ textarea {
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+/* 顶栏中间的连接 IP 指示(绝对居中,不干扰两侧布局) */
+.header-conn {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 40%;
+  padding: 3px 8px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--bg3);
+  font-size: 12px;
+}
+
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.conn-dot.conn-connecting {
+  background: var(--warn);
+  animation: blink 1s infinite;
+}
+
+.conn-dot.conn-connected {
+  background: var(--ok);
+}
+
+.conn-host {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conn-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.conn-copy:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.conn-copy.copied {
+  color: var(--ok);
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .logo {

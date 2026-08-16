@@ -4,6 +4,7 @@ node_modules/
 # 构建产物
 dist/
 src-tauri/target/
+src-tauri/target-msvc/
 
 # Rust 编译缓存
 # 注意:桌面应用建议提交 src-tauri/Cargo.lock 以锁定依赖版本

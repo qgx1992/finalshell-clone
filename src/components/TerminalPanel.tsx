@@ -1,0 +1,276 @@
+import { useEffect, useRef, useState } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { listen } from "@tauri-apps/api/event";
+import { connectServer, resizeTerminal, writeTerminal } from "../api";
+import { useApp } from "../store/app";
+import type { ServerConfig } from "../types";
+import { DEFAULT_SCHEME, type TermScheme } from "../themes";
+import ContextMenu, { type CtxMenuState } from "./ContextMenu";
+
+interface Props {
+  tabKey: string;
+  server: ServerConfig;
+  scheme: TermScheme;
+  fontSize: number;
+  /** 是否为活动标签;切回活动时重新 fit(隐藏期间尺寸为 0) */
+  active?: boolean;
+}
+
+export default function TerminalPanel({ tabKey, server, scheme, fontSize, active }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  const sessionIdRef = useRef<number | null>(null);
+  const disposedRef = useRef(false);
+  const [menu, setMenu] = useState<CtxMenuState | null>(null);
+  // 供标签页右键"重新连接"触发的连接函数(首个 effect 中定义)
+  const doConnectRef = useRef<() => void>(() => {});
+
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const id = sessionIdRef.current;
+      if (id != null && text) {
+        const b64 = btoa(unescape(encodeURIComponent(text)));
+        writeTerminal(id, b64).catch(() => {});
+      }
+    } catch {
+      const ta = document.createElement("textarea");
+      document.body.appendChild(ta);
+      ta.focus();
+      document.execCommand("paste");
+      const text = ta.value;
+      document.body.removeChild(ta);
+      const id = sessionIdRef.current;
+      if (id != null && text) {
+        const b64 = btoa(unescape(encodeURIComponent(text)));
+        writeTerminal(id, b64).catch(() => {});
+      }
+    }
+  };
+
+  const setSession = useApp((s) => s.setSession);
+  const setTabStatus = useApp((s) => s.setTabStatus);
+  const closeTab = useApp((s) => s.closeTab);
+
+  useEffect(() => {
+    disposedRef.current = false;
+    const container = containerRef.current!;
+    const term = new Terminal({
+      fontFamily: '"Cascadia Code", Consolas, "Courier New", monospace',
+      fontSize,
+      cursorBlink: true,
+      scrollback: 10000,
+      convertEol: false,
+      theme: scheme.theme,
+      allowProposedApi: true,
+    });
+    termRef.current = term;
+
+    const fit = new FitAddon();
+    fitRef.current = fit;
+    term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
+    term.open(container);
+    fit.fit();
+
+    const handleResize = () => {
+      if (termRef.current && sessionIdRef.current != null) {
+        const dims = fit.proposeDimensions();
+        if (dims) {
+          resizeTerminal(sessionIdRef.current, dims.cols, dims.rows).catch(() => {});
+        }
+      }
+      try {
+        fit.fit();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const handleTermCtx = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const hasSel = !!term.getSelection();
+      setMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            icon: "📋",
+            label: "复制",
+            disabled: !hasSel,
+            onClick: () => {
+              const sel = term.getSelection();
+              if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+            },
+          },
+          { icon: "📥", label: "粘贴", onClick: () => pasteFromClipboard() },
+          { divider: true },
+          { icon: "🧹", label: "清屏", onClick: () => term.clear() },
+          { icon: "🔄", label: "重置终端", onClick: () => term.reset() },
+        ],
+      });
+    };
+    const ro = new ResizeObserver(() => handleResize());
+    ro.observe(container);
+    container.addEventListener("contextmenu", handleTermCtx);
+
+    // 键盘输入 -> 后端(合并小批量发送,减少每击键一次的 IPC 往返)
+    let inputBuf = "";
+    let inputTimer: number | null = null;
+    const flushInput = () => {
+      inputTimer = null;
+      if (!inputBuf) return;
+      const b64 = btoa(unescape(encodeURIComponent(inputBuf)));
+      inputBuf = "";
+      const id = sessionIdRef.current;
+      if (id == null) return;
+      writeTerminal(id, b64).catch((e) => {
+        term.writeln(`\r\n\x1b[31m[写入失败] ${String(e)}\x1b[0m`);
+      });
+    };
+    const dataDispose = term.onData((data) => {
+      inputBuf += data;
+      if (inputTimer == null) {
+        inputTimer = window.setTimeout(flushInput, 12);
+      }
+    });
+
+    let unListeners: Array<() => void> = [];
+
+    // 事件监听一次性注册(用 sessionIdRef 过滤会话,断开重连后复用,避免重复监听)
+    const decoder = new TextDecoder();
+    listen<[number, string, string]>("term-data", (e) => {
+      if (disposedRef.current) return;
+      const [sid, b64, stream] = e.payload;
+      if (sid !== sessionIdRef.current) return;
+      try {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        term.write(decoder.decode(bytes, { stream: true }));
+      } catch {
+        /* ignore */
+      }
+      void stream;
+    }).then((un) => unListeners.push(un));
+
+    listen<[number, string, string]>("term-exit", (e) => {
+      if (disposedRef.current) return;
+      const [sid, status, reason] = e.payload;
+      if (sid !== sessionIdRef.current) return;
+      if (status === "closed") {
+        // 会话已失效,清引用避免续向旧会话写入输入/尺寸
+        sessionIdRef.current = null;
+        setTabStatus(tabKey, "closed", reason);
+        term.writeln(`\r\n\x1b[90m[连接已断开] ${reason}\x1b[0m`);
+      }
+    }).then((un) => unListeners.push(un));
+
+    // 连接逻辑:首次挂载与标签页右键"重新连接"共用
+    const doConnect = () => {
+      if (disposedRef.current) return;
+      const hadSession = sessionIdRef.current != null; // 已断开过 → 属重连场景
+      setTabStatus(tabKey, "connecting");
+      connectServer(server)
+        .then((id) => {
+          if (disposedRef.current) {
+            return; // 组件已卸载
+          }
+          sessionIdRef.current = id;
+          setSession(tabKey, id);
+          setTabStatus(tabKey, "connected");
+          if (hadSession) {
+            term.writeln("\r\n\x1b[32m[已连接]\x1b[0m");
+          }
+        })
+        .catch((e) => {
+          if (disposedRef.current) return;
+          setTabStatus(tabKey, "closed", String(e));
+          term.writeln(`\r\n\x1b[31m[连接失败] ${String(e)}\x1b[0m`);
+        });
+    };
+    doConnectRef.current = doConnect;
+    doConnect();
+
+    return () => {
+      disposedRef.current = true;
+      container.removeEventListener("contextmenu", handleTermCtx);
+      ro.disconnect();
+      dataDispose.dispose();
+      // 卸载前把缓冲的输入发出去
+      if (inputTimer != null) clearTimeout(inputTimer);
+      flushInput();
+      unListeners.forEach((u) => u());
+      unListeners = [];
+      const id = sessionIdRef.current;
+      if (id != null) {
+        import("../api").then(({ disconnect }) => disconnect(id).catch(() => {}));
+      }
+      term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
+      sessionIdRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabKey]);
+
+  // 主题/字号变化
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = scheme.theme;
+  }, [scheme]);
+
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.fontSize = fontSize;
+    }
+  }, [fontSize]);
+
+  // 标签页右键"重新连接":序号每次 +1,变化即重连(首次为 undefined 不触发)
+  const reconnectSeq = useApp((s) => s.reconnectSeq[tabKey]);
+  useEffect(() => {
+    if (!reconnectSeq) return;
+    doConnectRef.current();
+  }, [reconnectSeq]);
+
+  // 标签从隐藏切回活动:display:none 期间尺寸为 0,重新 fit 并同步远程窗口尺寸
+  useEffect(() => {
+    if (!active) return;
+    const raf = requestAnimationFrame(() => {
+      const container = containerRef.current;
+      const fit = fitRef.current;
+      if (!container || !fit || container.offsetParent == null) return;
+      try {
+        fit.fit();
+      } catch {
+        /* ignore */
+      }
+      const id = sessionIdRef.current;
+      if (id != null) {
+        const dims = fit.proposeDimensions();
+        if (dims) resizeTerminal(id, dims.cols, dims.rows).catch(() => {});
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        width: "100%",
+        height: "100%",
+        background: scheme.theme.background,
+        padding: "4px 0 0 4px",
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+      }}
+    >
+      <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+    </div>
+  );
+}
+
+export { DEFAULT_SCHEME };

@@ -1,0 +1,30 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+src-tauri/target/
+
+# Rust 编译缓存
+# 注意:桌面应用建议提交 src-tauri/Cargo.lock 以锁定依赖版本
+
+# 前端
+*.local
+.DS_Store
+
+# 测试/临时
+__pycache__/
+*.pyc
+*.log
+debug-*.log
+debug-*.png
+screenshot.png
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# Windows
+Thumbs.db
+Desktop.ini

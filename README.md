@@ -25,7 +25,8 @@
 > `df -Pk`、`/proc/loadavg`、`/proc/uptime` 等并解析;CPU / 网络速率靠两次采样差值计算。
 
 ### ⚡ 效率工具
-- 快捷命令面板(可自定义,执行结果即时查看)
+- **顶栏连接 IP 显示**:当前活动标签页的 IP / 主机名显示在顶栏中央,一键复制
+- **快捷命令面板**(可自定义):点击后**直接在终端窗口执行并回显输出**(写入当前 SSH 会话,由 shell 真正运行),不再在侧边栏面板里显示
 - 10 套内置终端配色方案(Monokai / Dracula / Solarized / One Dark / Nord 等)
 - 深色 / 浅色界面主题、字号调节
 - 最近连接、服务器分组管理
@@ -102,18 +103,27 @@ npm run tauri dev
 ## 📦 打包
 
 ```bash
-npm run tauri build   # 生成 NSIS 安装包
+# 推荐:MSVC 工具链一键打包(自动设置 RUSTUP_TOOLCHAIN + target-msvc 目录)
+npm run build:msvc            # 生成 NSIS 安装包
+
+# 或使用默认(当前 GNU)工具链
+npm run tauri build
 ```
+
+> 💡 `npm run build:msvc` 通过 `scripts/build-msvc.mjs` 固定使用 MSVC 工具链
+> (`stable-x86_64-pc-windows-msvc`)并指向独立的 `src-tauri/target-msvc/` 编译目录,
+> 有效规避下面「项目路径含空格」导致的 windres 失败 —— **推荐优先使用这条命令**。
 
 ### ⚠️ 打包常见问题(必读)
 
-1. **项目路径不能包含空格!**
-   本项目位于 `D:\A-my project\...`(含空格)。GNU 工具链的 `windres` 在预处理 rc 资源文件时,
-   会把带空格的 `--include-dir` 路径在空格处截断,导致资源编译失败:
+1. **项目路径不能包含空格(仅 GNU 工具链)!**
+   若用默认 GNU 工具链,本项目位于 `D:\A-my project\...`(含空格),`windres` 在预处理 rc
+   资源文件时会把带空格的 `--include-dir` 路径在空格处截断,导致资源编译失败:
    ```
    cc1.exe: fatal error: ...\out: No such file or directory
    ```
-   **解法(无需移动项目):** 先建一个无空格路径的 junction,再从 junction 路径构建:
+   **解法 A(推荐,已固化):** 直接用 `npm run build:msvc` 走 MSVC 工具链,不受路径空格影响。
+   **解法 B(遗留,gNU):** 建一个无空格路径的 junction,再从 junction 路径构建:
    ```powershell
    mklink /J "%TEMP%\fsc" "D:\A-my project\finalshell-clone"
    Set-Location "%TEMP%\fsc"          # 后端在无空格路径下构建,windres 正常
@@ -216,6 +226,8 @@ finalshell-clone/
 │   ├── webview2-hook.nsh        # NSIS 钩子:打包 WebView2Loader.dll
 │   ├── tauri.conf.json          # Tauri 配置
 │   └── capabilities/default.json
+├── scripts/
+│   └── build-msvc.mjs           # MSVC 工具链打包脚本(build:msvc)
 ├── test_server.py               # 端到端测试用 SSH 服务器
 └── e2e_test.py                  # CDP 驱动的 UI 自动化测试
 ```

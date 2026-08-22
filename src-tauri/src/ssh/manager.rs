@@ -48,6 +48,13 @@ pub struct SessionInfo {
     pub connected_at: u64,
 }
 
+/// 监控静态信息缓存:主机名/CPU 核数几乎不变,只在首次采样时获取一次
+#[derive(Default)]
+pub struct MonitorCache {
+    pub hostname: Option<String>,
+    pub cores: Option<u32>,
+}
+
 pub struct SessionEntry {
     pub id: u64,
     pub server: ServerConfig,
@@ -63,6 +70,8 @@ pub struct SessionEntry {
     pub last_cpu: Mutex<Option<(u64, u64)>>,   // (idle, total)
     pub last_net: Mutex<Option<(u64, u64)>>,   // (rx, tx)
     pub last_net_time: Mutex<Option<u64>>,
+    /// 监控静态信息缓存(hostname/cores 仅采集一次)
+    pub monitor_cache: Mutex<MonitorCache>,
 }
 
 #[derive(Default)]
@@ -230,6 +239,7 @@ pub async fn connect_server(
         last_cpu: Mutex::new(None),
         last_net: Mutex::new(None),
         last_net_time: Mutex::new(None),
+        monitor_cache: Mutex::new(MonitorCache::default()),
     });
 
     // 存进 manager

@@ -2,12 +2,56 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { CanvasAddon } from "@xterm/addon-canvas";
 import { listen } from "@tauri-apps/api/event";
 import { connectServer, resizeTerminal, writeTerminal } from "../api";
 import { useApp } from "../store/app";
 import type { ServerConfig } from "../types";
 import { DEFAULT_SCHEME, type TermScheme } from "../themes";
 import ContextMenu, { type CtxMenuState } from "./ContextMenu";
+
+// ---------- 高效 base64 解码 ----------
+// 查表 + 每 4 字符一组解码,比 Uint8Array.from(atob(), charCodeAt) 快;
+// 终端高吞吐输出时减少主线程解码开销。
+// 注意:组内 acc 最多 24 bits,避免 JS 左移(<<)按 int32 截断导致位流错乱。
+const B64_TABLE = new Int8Array(128).fill(-1);
+for (let i = 0; i < 26; i++) {
+  B64_TABLE[65 + i] = i; // A-Z
+  B64_TABLE[97 + i] = 26 + i; // a-z
+}
+for (let i = 0; i < 10; i++) {
+  B64_TABLE[48 + i] = 52 + i; // 0-9
+}
+B64_TABLE[43] = 62; // +
+B64_TABLE[47] = 63; // /
+
+function decodeBase64(input: string): Uint8Array {
+  const len = input.length;
+  // 宽松估算输出容量(实际长度由 subarray 截断),兼容无 padding 的短输入
+  const out = new Uint8Array((len * 3) >> 2);
+  let o = 0;
+  let i = 0;
+  while (i < len) {
+    // 每组最多 4 个有效 base64 字符(24 bits → 3 字节),acc 不跨组累积
+    let acc = 0;
+    let n = 0;
+    while (i < len && n < 4) {
+      const code = input.charCodeAt(i++);
+      if (code === 61) break; // '=' padding 结束
+      const v = code < 128 ? B64_TABLE[code] : -1;
+      if (v < 0) continue; // 跳过空白/非法字符
+      acc = (acc << 6) | v;
+      n++;
+    }
+    // n 个字符 → n*6 bits,从中提取完整字节(高到低)
+    let remaining = n * 6;
+    while (remaining >= 8) {
+      remaining -= 8;
+      out[o++] = (acc >> remaining) & 0xff;
+    }
+  }
+  return out.subarray(0, o);
+}
 
 interface Props {
   tabKey: string;
@@ -72,6 +116,8 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
     const fit = new FitAddon();
     fitRef.current = fit;
     term.loadAddon(fit);
+    // Canvas renderer:大输出(日志/编译/cat)时远优于默认 DOM renderer
+    term.loadAddon(new CanvasAddon());
     term.loadAddon(new WebLinksAddon());
     term.open(container);
     fit.fit();
@@ -148,7 +194,7 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
       const [sid, b64, stream] = e.payload;
       if (sid !== sessionIdRef.current) return;
       try {
-        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const bytes = decodeBase64(b64);
         term.write(decoder.decode(bytes, { stream: true }));
       } catch {
         /* ignore */

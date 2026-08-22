@@ -27,14 +27,17 @@ pub struct MonitorSnapshot {
     pub hostname: String,
 }
 
-const MONITOR_CMD: &str = "echo '---CPU---'; cat /proc/stat | head -1; \
+/// 仅首次执行:采集几乎不变的静态信息(缓存复用)
+const MONITOR_INIT_CMD: &str = "echo '---CORES---'; nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo; \
+    echo '---HOST---'; hostname 2>/dev/null || uname -n";
+
+/// 每轮轮询:只采集动态指标(CPU/内存/网络/磁盘/负载/运行时间)
+const MONITOR_POLL_CMD: &str = "echo '---CPU---'; cat /proc/stat | head -1; \
     echo '---MEM---'; cat /proc/meminfo; \
     echo '---NET---'; cat /proc/net/dev; \
     echo '---DISK---'; df -Pk 2>/dev/null; \
     echo '---LOAD---'; cat /proc/loadavg; \
-    echo '---UPTIME---'; cat /proc/uptime; \
-    echo '---CORES---'; nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo; \
-    echo '---HOST---'; hostname 2>/dev/null || uname -n";
+    echo '---UPTIME---'; cat /proc/uptime";
 
 fn parse_kb(s: &str) -> u64 {
     s.trim().parse::<u64>().unwrap_or(0)
@@ -54,8 +57,44 @@ pub async fn monitor_poll(
         .cloned()
         .ok_or_else(|| format!("会话 {id} 不存在"))?;
 
-    let output = run_command(&entry, MONITOR_CMD, Duration::from_secs(15)).await?;
-    parse_monitor(&entry, &output).await
+    // 静态信息(主机名/CPU 核数)仅首次采集并缓存,后续轮询不再重复执行
+    {
+        let cache = entry.monitor_cache.lock().await;
+        if cache.hostname.is_none() {
+            drop(cache);
+            let init_out = run_command(&entry, MONITOR_INIT_CMD, Duration::from_secs(15)).await?;
+            let mut cache = entry.monitor_cache.lock().await;
+            let mut section = "";
+            for line in init_out.lines() {
+                let line = line.trim();
+                if line.starts_with("---") && line.ends_with("---") {
+                    section = &line[3..line.len() - 3];
+                    continue;
+                }
+                match section {
+                    "HOST" => {
+                        if !line.is_empty() {
+                            cache.hostname = Some(line.to_string());
+                        }
+                    }
+                    "CORES" => {
+                        if let Ok(c) = line.parse::<u32>() {
+                            cache.cores = Some(c.max(1));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let output = run_command(&entry, MONITOR_POLL_CMD, Duration::from_secs(15)).await?;
+    let mut snap = parse_monitor(&entry, &output).await?;
+    // 用缓存的静态信息填充
+    let cache = entry.monitor_cache.lock().await;
+    snap.hostname = cache.hostname.clone().unwrap_or_default();
+    snap.cpu_cores = cache.cores.unwrap_or(1);
+    Ok(snap)
 }
 
 async fn parse_monitor(entry: &SessionEntry, output: &str) -> Result<MonitorSnapshot, String> {
@@ -70,7 +109,6 @@ async fn parse_monitor(entry: &SessionEntry, output: &str) -> Result<MonitorSnap
     let mut section = "";
     let mut load_vals = [0f64; 3];
     let mut uptime: u64 = 0;
-    let mut cores: u32 = 1;
 
     for line in output.lines() {
         let line = line.trim();
@@ -153,14 +191,6 @@ async fn parse_monitor(entry: &SessionEntry, output: &str) -> Result<MonitorSnap
                     uptime = secs as u64;
                 }
             }
-            "CORES" => {
-                if let Ok(c) = line.trim().parse::<u32>() {
-                    cores = c.max(1);
-                }
-            }
-            "HOST" => {
-                snap.hostname = line.trim().to_string();
-            }
             _ => {}
         }
     }
@@ -215,7 +245,6 @@ async fn parse_monitor(entry: &SessionEntry, output: &str) -> Result<MonitorSnap
         snap.disk_percent = disk_used_kb as f64 / disk_total_kb as f64 * 100.0;
     }
 
-    snap.cpu_cores = cores;
     snap.load1 = load_vals[0];
     snap.load5 = load_vals[1];
     snap.load15 = load_vals[2];

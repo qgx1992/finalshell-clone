@@ -38,7 +38,12 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
   const pickKey = async () => {
     const p = await dialogOpen({
       title: "选择私钥文件",
-      filters: [{ name: "私钥", extensions: ["pem", "key", "ppk"] }],
+      // Windows 文件对话框按扩展名过滤时会隐藏无扩展名的文件(如 id_rsa、id_ed25519),
+      // 所以默认提供"所有文件",让 OpenSSH 私钥也能显示出来
+      filters: [
+        { name: "所有文件", extensions: ["*"] },
+        { name: "私钥", extensions: ["pem", "key", "ppk"] },
+      ],
     });
     if (p && typeof p === "string") set("private_key", p);
   };

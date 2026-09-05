@@ -1,4 +1,4 @@
-# FinalShell Clone 🖥️
+# FinalShell-X 🖥️
 
 基于 **Tauri 2 + Rust + React** 复刻的 FinalShell —— SSH 终端 / SFTP 文件管理 / 服务器监控一体化工具。
 
@@ -170,7 +170,7 @@ python e2e_test.py
 
 ## 🚨 故障排查:安装后没有界面
 
-**现象:** 双击(或从开始菜单)运行安装好的 FinalShell Clone,没有任何窗口出现,
+**现象:** 双击(或从开始菜单)运行安装好的 FinalShell-X,没有任何窗口出现,
 进程可能在后台挂着,事件日志里也查不到崩溃。
 
 **最常见根因:WebView2 依赖缺失或过旧。**
@@ -192,7 +192,7 @@ Tauri 2 应用依赖系统 **WebView2 Runtime** 渲染界面,而整个 WebView2 
    缺失则安装 [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
 
 3. **手工验证应用能否出窗** —— 直接运行安装目录的
-   `%LOCALAPPDATA%\FinalShell Clone\finalshell-clone.exe`,若窗口出现说明应用本身没问题,
+   `%LOCALAPPDATA%\FinalShell-X\finalshell-x.exe`,若窗口出现说明应用本身没问题,
    只是依赖环境未就绪。
 
 **排查小技巧:** 若开发环境(C# / Edge / 其它 WebView2 应用)能正常用,而本应用独独无界面,

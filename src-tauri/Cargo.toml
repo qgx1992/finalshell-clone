@@ -1,12 +1,12 @@
 [package]
-name = "finalshell-clone"
-version = "0.2.0"
+name = "finalshell-x"
+version = "0.3.0"
 description = "FinalShell 复刻版 - SSH/SFTP/监控一体化服务器管理工具"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "finalshell_clone_lib"
+name = "finalshell_x_lib"
 crate-type = ["rlib"]
 
 [build-dependencies]

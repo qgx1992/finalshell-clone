@@ -84,7 +84,7 @@ export default function App() {
       <header className="app-header">
         <div className="logo">
           <span className="logo-mark">▮▮</span>
-          <span className="logo-text">FinalShell Clone</span>
+          <span className="logo-text">FinalShell-X</span>
         </div>
         {activeTab && activeTab.status !== "closed" && (
           <div className="header-conn" title={`${activeTab.host} · ${activeTab.status}`}>
@@ -171,8 +171,8 @@ export default function App() {
           ) : (
             <div className="welcome">
               <div className="welcome-mark">▮▮</div>
-              <h1>FinalShell Clone</h1>
-              <p>SSH 终端 · SFTP 文件管理 · 服务器监控 一体化工具</p>
+              <h1>FinalShell-X</h1>
+              <p>SSH 终端 · SFTP 文件管理 · 远程 Windows · 服务器监控 一体化工具</p>
               <button className="btn btn-primary" onClick={() => setDialog({ mode: "new" })}>
                 ➕ 新建连接
               </button>

@@ -3,6 +3,13 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的格式,
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-09-05
+
+### 新增
+- **项目改名 FinalShell-X**:产品名、窗口标题、logo、欢迎页、安装包名统一为 FinalShell-X(Rust 包名同步为 `finalshell-x`)。
+- **连接远程 Windows**:服务器表单新增「连接类型」(SSH / 远程 Windows RDP);RDP 服务器点击连接时生成临时 `.rdp` 文件并调用系统自带 `mstsc.exe` 拉起远程桌面(自动填入主机、端口 3389、用户名),侧边栏带 RDP 徽标;旧数据自动兼容(默认 SSH)。
+- **关闭窗口确认**:点击窗口 × / Alt+F4 时弹「确认退出」系统对话框,确认后才退出,防止误关丢失会话。
+
 ## [0.2.0] - 2026-09-05
 
 ### 新增
@@ -22,7 +29,7 @@
 
 ## [0.1.0] - 2026-08
 
-初始版本(FinalShell Clone 复刻):
+初始版本(FinalShell-X 复刻):
 
 - SSH 终端:多标签、密码 / 私钥认证、xterm.js 渲染、标签页保活(切换不重连)、终端尺寸自适应。
 - SFTP 文件管理:同屏底部面板、增删改、拖拽上传 / 下载(进度条)、双击远程文件直接编辑(CodeMirror,保存写回)。
@@ -30,5 +37,6 @@
 - 效率工具:快捷命令面板、10 套终端配色、深 / 浅主题、字号调节、最近连接、服务器分组。
 - 打包:NSIS 安装包,WebView2 依赖自检与故障排查文档。
 
+[0.3.0]: https://github.com/qgx1992/finalshell-clone/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qgx1992/finalshell-clone/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qgx1992/finalshell-clone/releases/tag/v0.1.0

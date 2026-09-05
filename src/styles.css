@@ -355,6 +355,19 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.sv-badge {
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 14px;
+  border-radius: 3px;
+  color: #4cc2ff;
+  background: rgba(76, 194, 255, 0.12);
+  border: 1px solid rgba(76, 194, 255, 0.35);
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
 .sidebar-recent {
   padding-left: 12px;
 }

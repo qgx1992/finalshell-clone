@@ -15,6 +15,7 @@ const emptyForm = (): ServerConfig => ({
   name: "",
   host: "",
   port: 22,
+  conn_type: "ssh",
   username: "root",
   auth_type: "password",
   password: "",
@@ -63,8 +64,10 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
     if (!form.name.trim()) return setErr("请输入连接名称");
     if (!form.host.trim()) return setErr("请输入主机地址");
     if (!form.username.trim()) return setErr("请输入用户名");
-    if (form.auth_type === "password" && !form.password) return setErr("请输入密码");
-    if (form.auth_type === "key" && !form.private_key) return setErr("请选择私钥文件");
+    if (form.conn_type === "ssh") {
+      if (form.auth_type === "password" && !form.password) return setErr("请输入密码");
+      if (form.auth_type === "key" && !form.private_key) return setErr("请选择私钥文件");
+    }
     setSaving(true);
     setErr(null);
     try {
@@ -81,6 +84,18 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
       setSaving(false);
     }
   };
+
+  // 切换连接类型时自动带出默认端口
+  const setConnType = (t: "ssh" | "rdp") => {
+    setForm((f) => ({
+      ...f,
+      conn_type: t,
+      port: t === "rdp" ? 3389 : 22,
+      username: f.username === "Administrator" || f.username === "root" ? (t === "rdp" ? "Administrator" : "root") : f.username,
+    }));
+  };
+
+  const isRdp = form.conn_type === "rdp";
 
   // 统一的关闭入口:编辑模式下点遮罩不直接关闭;有未保存修改时弹系统确认框,确认后才关
   const isEditing = !!initial;
@@ -109,6 +124,16 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
         </div>
         <div className="modal-body">
           <div className="form-grid">
+            <label>
+              连接类型
+              <select
+                value={form.conn_type}
+                onChange={(e) => setConnType(e.target.value as "ssh" | "rdp")}
+              >
+                <option value="ssh">SSH (Linux/Unix)</option>
+                <option value="rdp">远程 Windows (RDP)</option>
+              </select>
+            </label>
             <label>
               名称 *
               <input
@@ -144,13 +169,35 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
               <input
                 type="number"
                 value={form.port}
-                onChange={(e) => set("port", parseInt(e.target.value) || 22)}
+                placeholder={isRdp ? "3389" : "22"}
+                onChange={(e) => set("port", parseInt(e.target.value) || (isRdp ? 3389 : 22))}
               />
             </label>
             <label>
               用户名 *
-              <input value={form.username} onChange={(e) => set("username", e.target.value)} />
+              <input
+                value={form.username}
+                placeholder={isRdp ? "Administrator" : "root"}
+                onChange={(e) => set("username", e.target.value)}
+              />
             </label>
+            {isRdp ? (
+              <>
+                <label className="form-full">
+                  备注
+                  <textarea
+                    rows={2}
+                    value={form.remark}
+                    placeholder="备注信息"
+                    onChange={(e) => set("remark", e.target.value)}
+                  />
+                </label>
+                <div className="form-warn form-full">
+                  💡 远程 Windows 将调用系统自带远程桌面(mstsc)打开,密码在远程桌面登录框输入。
+                </div>
+              </>
+            ) : (
+              <>
             <label>
               认证方式
               <select
@@ -213,11 +260,15 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
               />
               使用 SSH 代理(第一版暂未实现,保留配置)
             </label>
+            </>
+            )}
           </div>
           {err && <div className="form-error">{err}</div>}
-          <div className="form-warn">
-            ⚠️ 密码将以明文保存在本地配置文件中,请勿在公共电脑上保存敏感服务器密码。
-          </div>
+          {!isRdp && (
+            <div className="form-warn">
+              ⚠️ 密码将以明文保存在本地配置文件中,请勿在公共电脑上保存敏感服务器密码。
+            </div>
+          )}
         </div>
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>取消</button>

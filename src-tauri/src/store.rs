@@ -11,12 +11,19 @@ pub struct ProxyConfig {
     pub password: Option<String>,
 }
 
+fn default_conn_type() -> String {
+    "ssh".into()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
     pub id: String,
     pub name: String,
     pub host: String,
     pub port: u16,
+    /// "ssh" | "rdp"
+    #[serde(default = "default_conn_type")]
+    pub conn_type: String,
     pub username: String,
     /// "password" | "key"
     pub auth_type: String,
@@ -41,6 +48,7 @@ impl Default for ServerConfig {
             name: String::new(),
             host: String::new(),
             port: 22,
+            conn_type: "ssh".into(),
             username: String::new(),
             auth_type: "password".into(),
             password: None,

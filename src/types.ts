@@ -12,6 +12,8 @@ export interface ServerConfig {
   name: string;
   host: string;
   port: number;
+  /** "ssh" | "rdp"(远程 Windows) */
+  conn_type: "ssh" | "rdp";
   username: string;
   auth_type: "password" | "key";
   password?: string | null;

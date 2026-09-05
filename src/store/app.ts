@@ -9,6 +9,11 @@ import {
 } from "../api";
 import type { AppSettings, ServerConfig } from "../types";
 
+/** 旧版本保存的服务器没有 conn_type 字段,统一补默认值 */
+function normalizeServers(servers: ServerConfig[]): ServerConfig[] {
+  return servers.map((s) => ({ ...s, conn_type: s.conn_type ?? "ssh" }));
+}
+
 export interface Tab {
   key: string; // 唯一 key
   serverId: string;
@@ -64,11 +69,11 @@ export const useApp = create<AppState>((set, get) => ({
 
   init: async () => {
     const [servers, settings] = await Promise.all([listServers(), getSettings()]);
-    set({ servers, settings });
+    set({ servers: normalizeServers(servers), settings });
   },
 
   refreshServers: async () => {
-    set({ servers: await listServers() });
+    set({ servers: normalizeServers(await listServers()) });
   },
 
   upsertServer: async (s) => {

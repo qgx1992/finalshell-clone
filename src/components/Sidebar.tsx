@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { connectRdp } from "../api";
 import { useApp } from "../store/app";
 import type { ServerConfig } from "../types";
 import ContextMenu, { type CtxMenuState } from "./ContextMenu";
@@ -14,6 +15,7 @@ export default function Sidebar({ onNewServer, onEditServer }: Props) {
   const openTab = useApp((s) => s.openTab);
   const removeServer = useApp((s) => s.removeServer);
   const setActiveTab = useApp((s) => s.setActiveTab);
+  const updateSettings = useApp((s) => s.updateSettings);
   const tabs = useApp((s) => s.tabs);
 
   const [filter, setFilter] = useState("");
@@ -64,6 +66,14 @@ export default function Sidebar({ onNewServer, onEditServer }: Props) {
   };
 
   const connect = (s: ServerConfig) => {
+    if (s.conn_type === "rdp") {
+      // 远程 Windows:拉起系统远程桌面,不建 SSH 标签
+      connectRdp(s).catch((e) => alert(`拉起远程桌面失败: ${e}`));
+      updateSettings({
+        last_servers: [s.id, ...(settings.last_servers ?? []).filter((id) => id !== s.id)].slice(0, 8),
+      });
+      return;
+    }
     const key = openTab(s);
     setActiveTab(key);
   };
@@ -164,10 +174,17 @@ export default function Sidebar({ onNewServer, onEditServer }: Props) {
                         ],
                       });
                     }}
-                    title={`${s.username}@${s.host}:${s.port}`}
+                    title={`${s.username}@${s.host}:${s.port}${s.conn_type === "rdp" ? " (RDP)" : ""}`}
                   >
-                    <span className="sv-icon">{isActive ? "🟢" : "🖥"}</span>
-                    <span className="sv-name">{s.name}</span>
+                    <span className="sv-icon">
+                      {isActive ? "🟢" : s.conn_type === "rdp" ? "🖥️" : "🖥"}
+                    </span>
+                    <span className="sv-name">
+                      {s.name}
+                      {s.conn_type === "rdp" && (
+                        <span className="sv-badge" title="远程 Windows (RDP)">RDP</span>
+                      )}
+                    </span>
                     <span className="sv-host">{s.host}</span>
                   </div>
                 );

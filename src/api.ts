@@ -27,6 +27,10 @@ export const resizeTerminal = (id: number, cols: number, rows: number) =>
 export const execCommand = (id: number, command: string) =>
   invoke<string>("exec_command", { id, command });
 export const listSessions = () => invoke<unknown[]>("list_sessions");
+
+// ---------- 远程 Windows (RDP) ----------
+export const connectRdp = (server: ServerConfig) =>
+  invoke<void>("connect_rdp", { server });
 export const closeSessionChannel = (id: number) =>
   invoke<void>("close_session_channel", { id });
 

@@ -70,7 +70,7 @@ export default function TabBar({ onCloseTab }: Props) {
           </button>
         </div>
       ))}
-      {tabs.length === 0 && <div className="tabbar-empty">欢迎使用 FinalShell Clone</div>}
+      {tabs.length === 0 && <div className="tabbar-empty">欢迎使用 FinalShell-X</div>}
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
     </div>
   );

@@ -10,12 +10,23 @@ interface Props {
 
 const GROUPS = ["默认分组", "生产环境", "测试环境", "开发环境", "云服务器"];
 
+const RDP_RESOLUTIONS = [
+  { value: "fullscreen", label: "全屏" },
+  { value: "auto", label: "自适应窗口" },
+  { value: "1280x720", label: "1280 x 720" },
+  { value: "1366x768", label: "1366 x 768" },
+  { value: "1600x900", label: "1600 x 900" },
+  { value: "1920x1080", label: "1920 x 1080" },
+  { value: "2560x1440", label: "2560 x 1440" },
+];
+
 const emptyForm = (): ServerConfig => ({
   id: "",
   name: "",
   host: "",
   port: 22,
   conn_type: "ssh",
+  rdp_resolution: "fullscreen",
   username: "root",
   auth_type: "password",
   password: "",
@@ -85,12 +96,13 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
     }
   };
 
-  // 切换连接类型时自动带出默认端口
+  // 切换连接类型时自动带出默认端口/分辨率
   const setConnType = (t: "ssh" | "rdp") => {
     setForm((f) => ({
       ...f,
       conn_type: t,
       port: t === "rdp" ? 3389 : 22,
+      rdp_resolution: t === "rdp" ? f.rdp_resolution || "fullscreen" : f.rdp_resolution,
       username: f.username === "Administrator" || f.username === "root" ? (t === "rdp" ? "Administrator" : "root") : f.username,
     }));
   };
@@ -183,6 +195,21 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
             </label>
             {isRdp ? (
               <>
+                <label>
+                  分辨率
+                  <select
+                    value={RDP_RESOLUTIONS.some((r) => r.value === form.rdp_resolution)
+                      ? form.rdp_resolution
+                      : "fullscreen"}
+                    onChange={(e) => set("rdp_resolution", e.target.value)}
+                  >
+                    {RDP_RESOLUTIONS.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label className="form-full">
                   备注
                   <textarea

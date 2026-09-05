@@ -5,15 +5,39 @@ use crate::store::ServerConfig;
 use std::fs;
 use std::process::Command;
 
+/// 把分辨率配置翻译成 .rdp 的显示相关字段
+fn rdp_display(res: &str) -> String {
+    // 全屏:让 mstsc 铺满本地屏幕
+    if res == "fullscreen" || res.is_empty() {
+        return "screen mode id:i:1\n".into();
+    }
+    // 自适应窗口:mstsc 按窗口大小缩放,初始用默认尺寸
+    if res == "auto" {
+        return "screen mode id:i:2\nsmart sizing:i:1\n".into();
+    }
+    // 固定分辨率,如 "1920x1080"
+    if let Some((w, h)) = res.split_once('x') {
+        if let (Ok(w), Ok(h)) = (w.trim().parse::<u32>(), h.trim().parse::<u32>()) {
+            return format!(
+                "screen mode id:i:2\ndesktopwidth:i:{w}\ndesktopheight:i:{h}\n"
+            );
+        }
+    }
+    // 无法解析则回退全屏
+    "screen mode id:i:1\n".into()
+}
+
 /// 拉起 RDP:写入临时 .rdp 文件后调用 mstsc.exe(系统自带)
 #[tauri::command]
 pub fn connect_rdp(server: ServerConfig) -> Result<(), String> {
     let addr = format!("{}:{}", server.host, server.port);
-    // 最小化 .rdp 内容:full address + username;密码由 mstsc 登录框输入
+    // 最小化 .rdp 内容:full address + username + 显示配置;密码由 mstsc 登录框输入
     // (明文密码无法安全写入 .rdp,mstsc 也不接受明文密码字段)
     let rdp_content = format!(
-        "full address:s:{}\nusername:s:{}\nscreen mode id:i:1\nprompt for credentials:i:1\nauthentication level:i:0\n",
-        addr, server.username
+        "full address:s:{}\nusername:s:{}\n{}prompt for credentials:i:1\nauthentication level:i:0\n",
+        addr,
+        server.username,
+        rdp_display(&server.rdp_resolution),
     );
     let rdp_path = std::env::temp_dir().join(format!("finalshell-x-{}.rdp", server.id));
     fs::write(&rdp_path, rdp_content).map_err(|e| format!("写入 .rdp 失败: {e}"))?;

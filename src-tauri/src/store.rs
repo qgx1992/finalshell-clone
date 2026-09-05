@@ -15,6 +15,10 @@ fn default_conn_type() -> String {
     "ssh".into()
 }
 
+fn default_rdp_resolution() -> String {
+    "fullscreen".into()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
     pub id: String,
@@ -24,6 +28,9 @@ pub struct ServerConfig {
     /// "ssh" | "rdp"
     #[serde(default = "default_conn_type")]
     pub conn_type: String,
+    /// RDP 分辨率: "fullscreen" | "auto" | "WxH" (如 "1920x1080"),仅 rdp 使用
+    #[serde(default = "default_rdp_resolution")]
+    pub rdp_resolution: String,
     pub username: String,
     /// "password" | "key"
     pub auth_type: String,
@@ -49,6 +56,7 @@ impl Default for ServerConfig {
             host: String::new(),
             port: 22,
             conn_type: "ssh".into(),
+            rdp_resolution: "fullscreen".into(),
             username: String::new(),
             auth_type: "password".into(),
             password: None,

@@ -14,6 +14,8 @@ export interface ServerConfig {
   port: number;
   /** "ssh" | "rdp"(远程 Windows) */
   conn_type: "ssh" | "rdp";
+  /** RDP 分辨率: "fullscreen" | "auto" | "WxH"(如 "1920x1080"),仅 rdp 使用 */
+  rdp_resolution?: string;
   username: string;
   auth_type: "password" | "key";
   password?: string | null;

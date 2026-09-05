@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的格式,
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] - 2026-09-05
+
+### 新增
+- **RDP 分辨率选择**:远程 Windows 服务器新增「分辨率」选项(全屏 / 自适应窗口 / 1280x720 / 1366x768 / 1600x900 / 1920x1080 / 2560x1440),写入 `.rdp` 的 `screen mode` / `desktopwidth` / `desktopheight`;旧数据默认全屏,行为不变。
+
 ## [0.3.0] - 2026-09-05
 
 ### 新增
@@ -37,6 +42,7 @@
 - 效率工具:快捷命令面板、10 套终端配色、深 / 浅主题、字号调节、最近连接、服务器分组。
 - 打包:NSIS 安装包,WebView2 依赖自检与故障排查文档。
 
+[0.3.1]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/qgx1992/finalshell-clone/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qgx1992/finalshell-clone/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qgx1992/finalshell-clone/releases/tag/v0.1.0

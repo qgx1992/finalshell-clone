@@ -3,6 +3,11 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的格式,
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-09-05
+
+### 修复
+- **RDP 分辨率选择无效(选择固定分辨率仍全屏)**:`.rdp` 中 `screen mode id` 取值写反 —— `i:1` 才是窗口模式、`i:2` 是全屏。现修正为:全屏→`i:2`;固定分辨率/自适应→`i:1` + 宽高/smart sizing,固定分辨率真正按所选尺寸窗口化。
+
 ## [0.3.1] - 2026-09-05
 
 ### 新增
@@ -42,6 +47,7 @@
 - 效率工具:快捷命令面板、10 套终端配色、深 / 浅主题、字号调节、最近连接、服务器分组。
 - 打包:NSIS 安装包,WebView2 依赖自检与故障排查文档。
 
+[0.3.2]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/qgx1992/finalshell-clone/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/qgx1992/finalshell-clone/compare/v0.1.0...v0.2.0

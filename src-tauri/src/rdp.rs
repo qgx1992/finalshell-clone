@@ -6,25 +6,26 @@ use std::fs;
 use std::process::Command;
 
 /// 把分辨率配置翻译成 .rdp 的显示相关字段
+/// 注意: screen mode id:i:1 = 窗口模式, i:2 = 全屏(微软文档: https://learn.microsoft.com/windows-server/administration/windows-commands/mstsc)
 fn rdp_display(res: &str) -> String {
-    // 全屏:让 mstsc 铺满本地屏幕
+    // 全屏:让 mstsc 铺满本地屏幕(screen mode 2)
     if res == "fullscreen" || res.is_empty() {
-        return "screen mode id:i:1\n".into();
+        return "screen mode id:i:2\n".into();
     }
-    // 自适应窗口:mstsc 按窗口大小缩放,初始用默认尺寸
+    // 自适应窗口:窗口模式 + smart sizing,按窗口大小缩放
     if res == "auto" {
-        return "screen mode id:i:2\nsmart sizing:i:1\n".into();
+        return "screen mode id:i:1\nsmart sizing:i:1\n".into();
     }
-    // 固定分辨率,如 "1920x1080"
+    // 固定分辨率,如 "1920x1080":窗口模式 + 固定宽高
     if let Some((w, h)) = res.split_once('x') {
         if let (Ok(w), Ok(h)) = (w.trim().parse::<u32>(), h.trim().parse::<u32>()) {
             return format!(
-                "screen mode id:i:2\ndesktopwidth:i:{w}\ndesktopheight:i:{h}\n"
+                "screen mode id:i:1\ndesktopwidth:i:{w}\ndesktopheight:i:{h}\n"
             );
         }
     }
     // 无法解析则回退全屏
-    "screen mode id:i:1\n".into()
+    "screen mode id:i:2\n".into()
 }
 
 /// 拉起 RDP:写入临时 .rdp 文件后调用 mstsc.exe(系统自带)

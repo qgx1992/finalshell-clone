@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的格式,
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.2.0] - 2026-09-05
 
 ### 新增
 - **顶栏连接 IP 显示**:当前活动标签页的 IP / 主机名显示在顶栏中央,状态圆点(连接中黄点闪烁 / 已连接绿点),带一键复制按钮(点击后短暂显示 ✓ 已复制)。
@@ -13,6 +13,10 @@
 ### 变更
 - 快捷命令面板(`QuickCommandPanel`)不再依赖 `execCommand` 后端调用与前端 `serverName` prop;未连接时点击给出「请先连接服务器」提示。
 - 构建产物目录 `src-tauri/target-msvc/` 加入 `.gitignore` 忽略。
+
+### 修复
+- **编辑服务器弹窗误触关闭**:点击遮罩不再直接关闭弹窗 —— 编辑模式下点遮罩一律不关闭;任何关闭操作(右上角 ×)若存在未保存修改,先弹系统确认框「有未保存的修改,确定要关闭吗?」,确认后才关闭(此前因 dirty 判断两侧归一化不一致,弹窗会被永远判为「有修改」,一并修复)。
+- **私钥文件选择器看不到无扩展名文件**(如 `id_rsa`):Windows 文件对话框按扩展名过滤时会隐藏无后缀文件,现默认提供「所有文件」选项。
 
 ---
 
@@ -26,5 +30,5 @@
 - 效率工具:快捷命令面板、10 套终端配色、深 / 浅主题、字号调节、最近连接、服务器分组。
 - 打包:NSIS 安装包,WebView2 依赖自检与故障排查文档。
 
-[Unreleased]: https://github.com/qgx1992/finalshell-clone/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/qgx1992/finalshell-clone/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/qgx1992/finalshell-clone/releases/tag/v0.1.0

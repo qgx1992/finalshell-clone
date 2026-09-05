@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
+import { open as dialogOpen, confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { useApp } from "../store/app";
 import type { ServerConfig } from "../types";
 
@@ -10,25 +10,36 @@ interface Props {
 
 const GROUPS = ["默认分组", "生产环境", "测试环境", "开发环境", "云服务器"];
 
+const emptyForm = (): ServerConfig => ({
+  id: "",
+  name: "",
+  host: "",
+  port: 22,
+  username: "root",
+  auth_type: "password",
+  password: "",
+  private_key: null,
+  key_passphrase: null,
+  group: "默认分组",
+  remark: "",
+  use_proxy: false,
+  proxy: null,
+});
+
 export default function ConnectionDialog({ initial, onClose }: Props) {
   const upsertServer = useApp((s) => s.upsertServer);
-  const [form, setForm] = useState<ServerConfig>(
-    initial ?? {
-      id: "",
-      name: "",
-      host: "",
-      port: 22,
-      username: "root",
-      auth_type: "password",
-      password: "",
-      private_key: null,
-      key_passphrase: null,
-      group: "默认分组",
-      remark: "",
-      use_proxy: false,
-      proxy: null,
-    }
-  );
+  const [form, setForm] = useState<ServerConfig>(initial ?? emptyForm());
+  // 快照对比时用同一函数归一化(null/空串统一成空串),避免两侧格式不一致导致永远 dirty
+  const norm = (s: ServerConfig) =>
+    JSON.stringify({
+      ...s,
+      password: s.password || "",
+      private_key: s.private_key || "",
+      key_passphrase: s.key_passphrase || "",
+    });
+  // 初始快照:表单与快照不一致视为"有未保存修改"
+  const [snapshot] = useState(() => norm(initial ?? emptyForm()));
+  const dirty = norm(form) !== snapshot;
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -71,12 +82,30 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
     }
   };
 
+  // 统一的关闭入口:编辑模式下点遮罩不直接关闭;有未保存修改时弹系统确认框,确认后才关
+  const isEditing = !!initial;
+
+  const tryClose = async (fromBackdrop: boolean) => {
+    if (fromBackdrop && isEditing) return; // 编辑服务器时,遮罩点击一律不关
+    if (dirty) {
+      const ok = await dialogConfirm("有未保存的修改，确定要关闭吗？", {
+        title: "未保存的修改",
+        kind: "warning",
+      });
+      if (!ok) return;
+    }
+    onClose();
+  };
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onClick={() => void tryClose(true)}
+    >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <span>{initial ? "编辑服务器" : "新建连接"}</span>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={() => void tryClose(false)}>×</button>
         </div>
         <div className="modal-body">
           <div className="form-grid">

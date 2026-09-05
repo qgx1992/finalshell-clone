@@ -1,9 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import pkg from "./package.json" with { type: "json" };
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // 状态栏版本号从 package.json 注入,避免手写写死后与实际发版不一致
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   // Tauri 期望固定端口,若被占用自动换端口会失败
   clearScreen: false,
   server: {

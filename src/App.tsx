@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useApp } from "./store/app";
 import Sidebar from "./components/Sidebar";
+import BrandMark from "./components/common/BrandMark";
 import TabBar from "./components/TabBar";
 import TerminalPanel from "./components/TerminalPanel";
 import SftpPanel from "./components/SftpPanel";
@@ -83,7 +84,7 @@ export default function App() {
     >
       <header className="app-header">
         <div className="logo">
-          <span className="logo-mark">▮▮</span>
+          <span className="logo-mark"><BrandMark size={20} /></span>
           <span className="logo-text">FinalShell-X</span>
         </div>
         {activeTab && activeTab.status !== "closed" && (
@@ -170,7 +171,7 @@ export default function App() {
             </div>
           ) : (
             <div className="welcome">
-              <div className="welcome-mark">▮▮</div>
+              <div className="welcome-mark"><BrandMark size={76} /></div>
               <h1>FinalShell-X</h1>
               <p>SSH 终端 · SFTP 文件管理 · 远程 Windows · 服务器监控 一体化工具</p>
               <button className="btn btn-primary" onClick={() => setDialog({ mode: "new" })}>
@@ -199,7 +200,7 @@ export default function App() {
         </span>
         <span className="status-spacer" />
         <span>{tabs.length} 个会话</span>
-        <span>v0.1.0</span>
+        <span>v{__APP_VERSION__}</span>
       </footer>
 
       {dialog && (

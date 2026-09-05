@@ -159,9 +159,8 @@ textarea {
 }
 
 .logo-mark {
-  color: var(--accent);
-  letter-spacing: -2px;
-  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .header-actions {
@@ -554,10 +553,9 @@ textarea {
 }
 
 .welcome-mark {
-  font-size: 56px;
-  color: var(--accent);
-  letter-spacing: -8px;
-  opacity: 0.5;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
 }
 
 .welcome h1 {

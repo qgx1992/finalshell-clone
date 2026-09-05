@@ -3,6 +3,15 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的格式,
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.5] - 2026-09-06
+
+### 变更
+- **全新应用图标**:蓝→青 45° 渐变圆角方卡 + 白色终端提示符(`>` 与光标下划线),笔画加粗、主体放大,16px 任务栏与浅色背景下依然清楚(旧图标线条过细、蓝绿两色不成体系,32px 以下就糊)。图标由 `scripts/gen-icon.py` 可重复生成,再经 `tauri icon` 展开全平台尺寸。
+- **应用内 logo 同步**:顶栏与欢迎页的 `▮▮` 文字标志换成与应用图标同一设计的 SVG(`BrandMark` 组件,渐变 id 用 `useId` 保证多实例唯一)。
+
+### 修复
+- **状态栏版本号写死为 v0.1.0**:改为构建期从 `package.json` 注入(`__APP_VERSION__`),不会再与实际发版脉络不一致。
+
 ## [0.3.4] - 2026-09-05
 
 ### 新增
@@ -63,6 +72,7 @@
 - 效率工具:快捷命令面板、10 套终端配色、深 / 浅主题、字号调节、最近连接、服务器分组。
 - 打包:NSIS 安装包,WebView2 依赖自检与故障排查文档。
 
+[0.3.5]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.2...v0.3.4
 [0.3.2]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.0...v0.3.1

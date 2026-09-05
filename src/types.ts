@@ -16,6 +16,8 @@ export interface ServerConfig {
   conn_type: "ssh" | "rdp";
   /** RDP 分辨率: "fullscreen" | "auto" | "WxH"(如 "1920x1080"),仅 rdp 使用 */
   rdp_resolution?: string;
+  /** RDP 是否共享本地剪贴板(默认 true),仅 rdp 使用 */
+  rdp_clipboard?: boolean;
   username: string;
   auth_type: "password" | "key";
   password?: string | null;

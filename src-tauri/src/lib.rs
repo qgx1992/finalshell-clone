@@ -1,5 +1,6 @@
 mod monitor;
 mod rdp;
+mod rdp_consent;
 mod ssh;
 mod store;
 

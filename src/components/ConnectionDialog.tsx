@@ -27,6 +27,7 @@ const emptyForm = (): ServerConfig => ({
   port: 22,
   conn_type: "ssh",
   rdp_resolution: "fullscreen",
+  rdp_clipboard: true,
   username: "root",
   auth_type: "password",
   password: "",
@@ -108,6 +109,14 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
   };
 
   const isRdp = form.conn_type === "rdp";
+
+  // 选的固定分辨率超过本机屏幕时,mstsc 只能显示部分画面(出现滚动条),提前提醒
+  const resTooLarge = (() => {
+    if (!isRdp) return false;
+    const m = /^(\d+)x(\d+)$/.exec(form.rdp_resolution || "");
+    if (!m) return false;
+    return Number(m[1]) > window.screen.availWidth || Number(m[2]) > window.screen.availHeight;
+  })();
 
   // 统一的关闭入口:编辑模式下点遮罩不直接关闭;有未保存修改时弹系统确认框,确认后才关
   const isEditing = !!initial;
@@ -210,6 +219,14 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
                     ))}
                   </select>
                 </label>
+                <label className="form-full form-check">
+                  <input
+                    type="checkbox"
+                    checked={form.rdp_clipboard ?? true}
+                    onChange={(e) => set("rdp_clipboard", e.target.checked)}
+                  />
+                  共享剪贴板(本地与远程互相复制粘贴)
+                </label>
                 <label className="form-full">
                   备注
                   <textarea
@@ -221,6 +238,13 @@ export default function ConnectionDialog({ initial, onClose }: Props) {
                 </label>
                 <div className="form-warn form-full">
                   💡 远程 Windows 将调用系统自带远程桌面(mstsc)打开,密码在远程桌面登录框输入。
+                  {resTooLarge && (
+                    <>
+                      <br />
+                      ⚠️ 所选分辨率大于本机屏幕({window.screen.availWidth}×{window.screen.availHeight}),
+                      窗口会出现滚动条;建议选「全屏」或更小的分辨率。
+                    </>
+                  )}
                 </div>
               </>
             ) : (

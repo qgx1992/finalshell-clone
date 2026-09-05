@@ -9,12 +9,13 @@ import {
 } from "../api";
 import type { AppSettings, ServerConfig } from "../types";
 
-/** 旧版本保存的服务器没有 conn_type / rdp_resolution 字段,统一补默认值 */
+/** 旧版本保存的服务器没有 conn_type / rdp_* 字段,统一补默认值 */
 function normalizeServers(servers: ServerConfig[]): ServerConfig[] {
   return servers.map((s) => ({
     ...s,
     conn_type: s.conn_type ?? "ssh",
     rdp_resolution: s.rdp_resolution || "fullscreen",
+    rdp_clipboard: s.rdp_clipboard ?? true,
   }));
 }
 

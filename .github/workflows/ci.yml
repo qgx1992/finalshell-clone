@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装 Rust(MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: 缓存 Rust 构建产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 前端类型检查
+        run: npm run typecheck
+
+      - name: 后端编译检查
+        run: cargo check --all-targets
+        working-directory: src-tauri
+
+      - name: 后端单元测试(同时导出 TS 类型)
+        run: cargo test
+        working-directory: src-tauri
+
+      - name: 检查生成的类型是否需要更新
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain src/generated)" ]; then
+            echo "src/generated 与 Rust 类型不一致,请运行 npm run types:gen 后提交。"
+            git --no-pager diff src/generated
+            exit 1
+          fi
+
+      - name: 前端构建
+        run: npm run build
+
+  audit:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    # 依赖漏洞来自上游,不阻塞主构建,但结果会显示在 CI 中
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装 Rust(MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 前端依赖审计
+        run: npm audit --audit-level=high
+
+      - name: 安装 cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: 后端依赖审计
+        run: cargo audit
+        working-directory: src-tauri

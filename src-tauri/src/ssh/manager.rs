@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use russh::client::{self, Handle};
-use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
+use russh::keys::{load_secret_key, PrivateKeyWithHashAlg, PublicKey};
 use russh::ChannelMsg;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -8,25 +8,38 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
+use tracing::info;
 
+use crate::error::AppError;
+use crate::security::credentials::{SecretCache, SecretKind};
+use crate::security::known_hosts::{
+    known_hosts_path, HostKeyObservation, HostKeyStatus, HostKeyVerifier, TrustDecision,
+};
 use crate::store::{ServerConfig, Store};
 
 // ---------- 事件名 ----------
 pub const EV_TERM_DATA: &str = "term-data";
 pub const EV_TERM_EXIT: &str = "term-exit";
 
-/// russh 客户端 Handler:直接信任服务器密钥(第一版)
-#[derive(Clone, Default)]
-pub struct SshHandler;
+/// russh 客户端 Handler:把主机密钥校验委托给 TOFU 校验器
+pub struct SshHandler {
+    verifier: HostKeyVerifier,
+}
+
+impl SshHandler {
+    pub fn new(verifier: HostKeyVerifier) -> Self {
+        Self { verifier }
+    }
+}
 
 impl client::Handler for SshHandler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::PublicKey,
+        server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        Ok(true)
+        self.verifier.verify(server_public_key).await
     }
 }
 
@@ -53,6 +66,17 @@ pub struct SessionInfo {
 pub struct MonitorCache {
     pub hostname: Option<String>,
     pub cores: Option<u32>,
+    /// 远程系统类型探测结果,避免在不支持的平台反复执行 /proc 命令
+    pub platform: Option<RemotePlatform>,
+}
+
+/// 远程主机可用的监控采集方式
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemotePlatform {
+    Linux,
+    Windows,
+    MacOs,
+    Unsupported,
 }
 
 pub struct SessionEntry {
@@ -72,6 +96,8 @@ pub struct SessionEntry {
     pub last_net_time: Mutex<Option<u64>>,
     /// 监控静态信息缓存(hostname/cores 仅采集一次)
     pub monitor_cache: Mutex<MonitorCache>,
+    /// 读循环是否已经结束(用于幂等清理)
+    pub reader_done: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -85,11 +111,15 @@ impl SshManager {
         Self::default()
     }
 
-    async fn get_entry(&self, id: u64) -> Option<Arc<SessionEntry>> {
+    pub async fn get_entry(&self, id: u64) -> Option<Arc<SessionEntry>> {
         self.sessions.lock().await.get(&id).cloned()
     }
-}
 
+    /// 移除会话并返回它,保证清理逻辑只执行一次
+    pub async fn take_entry(&self, id: u64) -> Option<Arc<SessionEntry>> {
+        self.sessions.lock().await.remove(&id)
+    }
+}
 // ---------- 辅助:执行远程命令并收集全部输出 ----------
 /// 打开一条新的 exec 通道
 async fn open_exec_channel(
@@ -159,6 +189,53 @@ pub async fn run_command(
     result
 }
 
+/// 解析认证所需的凭据(优先当前输入,其次系统凭据库)
+fn resolve_credential(
+    cache: &SecretCache,
+    server: &ServerConfig,
+    kind: SecretKind,
+    inline: Option<String>,
+) -> Result<Option<String>, AppError> {
+    if let Some(value) = inline.filter(|v| !v.is_empty()) {
+        return Ok(Some(value));
+    }
+    cache
+        .get(&server.id, kind)
+        .map_err(|e| AppError::config(e.to_string()))
+}
+
+/// 建立 TCP 连接:直连或经代理
+async fn open_transport(
+    server: &ServerConfig,
+    cache: &SecretCache,
+) -> Result<tokio::net::TcpStream, AppError> {
+    if !server.use_proxy {
+        let addr = format!("{}:{}", server.host, server.port);
+        return tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            tokio::net::TcpStream::connect(&addr),
+        )
+        .await
+        .map_err(|_| AppError::Timeout {
+            message: format!("连接 {addr} 超时"),
+        })?
+        .map_err(|e| AppError::network(format!("连接 {addr} 失败: {e}")));
+    }
+
+    let Some(mut proxy) = server.proxy.clone() else {
+        return Err(AppError::config("已启用代理但未配置代理服务器"));
+    };
+    // 代理密码从系统凭据库补齐
+    if proxy.password.is_none() {
+        proxy.password = cache
+            .get(&server.id, SecretKind::ProxyPassword)
+            .map_err(|e| AppError::config(e.to_string()))?;
+    }
+    crate::ssh::proxy::connect_through_proxy(&server.host, server.port, &proxy)
+        .await
+        .map_err(AppError::network)
+}
+
 // ---------- Tauri commands ----------
 
 /// 建立 SSH 连接,返回会话 id
@@ -166,19 +243,66 @@ pub async fn run_command(
 pub async fn connect_server(
     app: AppHandle,
     state: State<'_, SshManager>,
+    cache: State<'_, SecretCache>,
     server: ServerConfig,
-) -> Result<u64, String> {
-    let id = state.next_id.fetch_add(1, Ordering::SeqCst);
-    let addr = format!("{}:{}", server.host, server.port);
-    let started = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    host_key_decision: Option<String>,
+    host_key_fingerprint: Option<String>,
+    inline_password: Option<String>,
+    inline_key_passphrase: Option<String>,
+) -> Result<u64, AppError> {
+    let store = Store::new(&app);
+    let decision = match (host_key_decision.as_deref(), host_key_fingerprint) {
+        (Some("trust_new"), Some(fp)) => Some(TrustDecision::TrustNew { fingerprint: fp }),
+        (Some("trust_changed"), Some(fp)) => Some(TrustDecision::TrustChanged { fingerprint: fp }),
+        _ => None,
+    };
 
+    let verifier = HostKeyVerifier::new(
+        known_hosts_path(store.config_dir()),
+        server.host.clone(),
+        server.port,
+        decision,
+    );
+    let observation = verifier.observation();
+    let handler = SshHandler::new(verifier);
+
+    // 认证凭据解析(不写日志)
+    let auth_secret = match server.auth_type.as_str() {
+        "key" => resolve_credential(
+            &cache,
+            &server,
+            SecretKind::KeyPassphrase,
+            inline_key_passphrase.clone(),
+        )?,
+        _ => resolve_credential(
+            &cache,
+            &server,
+            SecretKind::Password,
+            inline_password.clone(),
+        )?,
+    };
+
+    let stream = open_transport(&server, &cache).await?;
     let config = client::Config::default();
-    let mut handle = client::connect(Arc::new(config), &*addr, SshHandler)
-        .await
-        .map_err(|e| format!("连接 {addr} 失败: {e}"))?;
+    let connect_result = client::connect_stream(Arc::new(config), stream, handler).await;
+
+    let mut handle = match connect_result {
+        Ok(handle) => handle,
+        Err(e) => {
+            // 握手失败:如果是主机密钥未确认/变更,转换成结构化错误让前端弹窗
+            if let Some(obs) = observation.lock().await.clone() {
+                return match obs.status {
+                    HostKeyStatus::Unknown => Err(AppError::HostKeyUnknown { observation: obs }),
+                    HostKeyStatus::Changed => Err(AppError::HostKeyChanged { observation: obs }),
+                    HostKeyStatus::Trusted => Err(AppError::network(format!("SSH 握手失败: {e}"))),
+                };
+            }
+            return Err(AppError::network(format!(
+                "连接 {}:{} 失败: {e}",
+                server.host, server.port
+            )));
+        }
+    };
 
     // 认证
     let auth_ok = match server.auth_type.as_str() {
@@ -186,46 +310,55 @@ pub async fn connect_server(
             let key_path = server
                 .private_key
                 .clone()
-                .ok_or_else(|| "未指定私钥路径".to_string())?;
-            let pass = server.key_passphrase.clone();
-            let key = load_secret_key(&key_path, pass.as_deref())
-                .map_err(|e| format!("加载私钥失败: {e}"))?;
+                .filter(|p| !p.is_empty())
+                .ok_or_else(|| AppError::config("未指定私钥路径"))?;
+            let key = load_secret_key(&key_path, auth_secret.as_deref())
+                .map_err(|e| AppError::config(format!("加载私钥失败: {e}")))?;
             let kh = PrivateKeyWithHashAlg::new(Arc::new(key), None);
             handle
                 .authenticate_publickey(&server.username, kh)
                 .await
-                .map_err(|e| format!("密钥认证失败: {e}"))?
+                .map_err(|e| AppError::AuthFailed {
+                    message: e.to_string(),
+                })?
         }
         _ => {
-            let pass = server
-                .password
-                .clone()
-                .ok_or_else(|| "未设置密码".to_string())?;
+            let pass = auth_secret.ok_or_else(|| AppError::config("未设置密码"))?;
             handle
                 .authenticate_password(&server.username, &pass)
                 .await
-                .map_err(|e| format!("密码认证失败: {e}"))?
+                .map_err(|e| AppError::AuthFailed {
+                    message: e.to_string(),
+                })?
         }
     };
     if !matches!(auth_ok, russh::client::AuthResult::Success) {
-        return Err("认证失败:用户名或密码/密钥不正确".into());
+        return Err(AppError::AuthFailed {
+            message: "用户名或密码/密钥不正确".into(),
+        });
     }
 
     // 打开终端通道
     let channel = handle
         .channel_open_session()
         .await
-        .map_err(|e| format!("打开会话通道失败: {e}"))?;
+        .map_err(|e| AppError::network(format!("打开会话通道失败: {e}")))?;
     channel
         .request_pty(true, "xterm-256color", 120, 32, 0, 0, &[])
         .await
-        .map_err(|e| format!("请求 PTY 失败: {e}"))?;
+        .map_err(|e| AppError::network(format!("请求 PTY 失败: {e}")))?;
     channel
         .request_shell(true)
         .await
-        .map_err(|e| format!("启动 shell 失败: {e}"))?;
+        .map_err(|e| AppError::network(format!("启动 shell 失败: {e}")))?;
     // 拆分读写半:读循环与写入互不阻塞,消除输入卡顿
     let (reader, writer) = channel.split();
+
+    let id = state.next_id.fetch_add(1, Ordering::SeqCst);
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
 
     let entry = Arc::new(SessionEntry {
         id,
@@ -240,13 +373,13 @@ pub async fn connect_server(
         last_net: Mutex::new(None),
         last_net_time: Mutex::new(None),
         monitor_cache: Mutex::new(MonitorCache::default()),
+        reader_done: std::sync::atomic::AtomicBool::new(false),
     });
 
-    // 存进 manager
     state.sessions.lock().await.insert(id, entry.clone());
+    info!(session_id = id, host = %server.host, port = server.port, "SSH connected");
 
     // 记录最近连接
-    let store = Store::new(&app);
     let mut settings = store.load_settings();
     settings.last_servers.retain(|s| s != &server.id);
     settings.last_servers.insert(0, server.id.clone());
@@ -258,61 +391,81 @@ pub async fn connect_server(
     // 广播连接事件
     let _ = app.emit(EV_TERM_EXIT, (id, "connected".to_string(), String::new()));
 
-    // 启动终端读循环:数据批量合并后发送(最多 16ms 或 32KB 一次),大幅降低 IPC 事件数
+    // 启动终端读循环:首个数据到达前无限等待,收到数据后用 16ms 窗口合并
     let app2 = app.clone();
     let entry2 = entry.clone();
     let sessions = state.sessions.clone();
     tokio::spawn(async move {
-        let result: Result<(), String> = async {
-            const FLUSH_BYTES: usize = 32 * 1024;
-            let mut pending: Vec<u8> = Vec::new();
-            loop {
-                // 用 16ms 超时轮询:既有数据时等待,空闲时充当 flush 定时器
-                let (timed_out, msg) = {
-                    let mut reader = entry2.term_reader.lock().await;
-                    match tokio::time::timeout(
-                        std::time::Duration::from_millis(16),
-                        reader.wait(),
-                    )
-                    .await
-                    {
-                        Ok(m) => (false, m),
-                        Err(_) => (true, None),
-                    }
-                };
-                match msg {
-                    Some(ChannelMsg::Data { data }) => pending.extend_from_slice(&data),
-                    Some(ChannelMsg::ExtendedData { data, .. }) => pending.extend_from_slice(&data),
-                    Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => break,
-                    Some(_) => {}
-                    None => {
-                        if !timed_out {
-                            break; // 通道已关闭
-                        }
-                    }
+        const FLUSH_BYTES: usize = 32 * 1024;
+        let mut pending: Vec<u8> = Vec::new();
+        let mut first_byte_seen = false;
+
+        loop {
+            let msg = if first_byte_seen {
+                let mut reader = entry2.term_reader.lock().await;
+                match tokio::time::timeout(std::time::Duration::from_millis(16), reader.wait()).await
+                {
+                    Ok(msg) => (true, msg),
+                    Err(_) => (false, None),
                 }
-                if !pending.is_empty() && (pending.len() >= FLUSH_BYTES || timed_out) {
-                    let _ = app2.emit(EV_TERM_DATA, (id, B64.encode(&pending), "out".to_string()));
-                    pending.clear();
+            } else {
+                let mut reader = entry2.term_reader.lock().await;
+                (true, reader.wait().await)
+            };
+            let (got_message, msg) = msg;
+
+            match msg {
+                Some(ChannelMsg::Data { data }) => {
+                    first_byte_seen = true;
+                    pending.extend_from_slice(&data);
+                }
+                Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    first_byte_seen = true;
+                    pending.extend_from_slice(&data);
+                }
+                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => break,
+                Some(_) => {}
+                None => {
+                    if got_message {
+                        break;
+                    }
                 }
             }
-            // 退出前补发剩余数据
-            if !pending.is_empty() {
+
+            if !pending.is_empty() && (pending.len() >= FLUSH_BYTES || !got_message) {
                 let _ = app2.emit(EV_TERM_DATA, (id, B64.encode(&pending), "out".to_string()));
+                pending.clear();
+                first_byte_seen = false;
             }
-            Ok(())
         }
-        .await;
-        // 更新状态并通知前端
-        if let Some(e) = sessions.lock().await.get(&id) {
-            *e.status.lock().await = SessionStatus::Closed;
+        // 退出前补发剩余数据
+        if !pending.is_empty() {
+            let _ = app2.emit(EV_TERM_DATA, (id, B64.encode(&pending), "out".to_string()));
         }
-        let reason = match result {
-            Ok(_) => "连接已关闭".to_string(),
-            Err(e) => e,
-        };
-        let _ = app2.emit(EV_TERM_EXIT, (id, "closed".to_string(), reason));
+
+        // 读循环结束后清理会话,避免断线会话残留在内存里
+        let taken = sessions.lock().await.remove(&id);
+        if let Some(entry) = taken {
+            entry
+                .reader_done
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            *entry.status.lock().await = SessionStatus::Closed;
+            let _ = entry.term_writer.close().await;
+        }
+        let _ = app2.emit(
+            EV_TERM_EXIT,
+            (id, "closed".to_string(), "连接已关闭".to_string()),
+        );
+        info!(session_id = id, "SSH session closed");
     });
+
+    // 内存凭据用后即清
+    if let Some(mut value) = inline_password {
+        crate::security::credentials::zeroize_string(&mut value);
+    }
+    if let Some(mut value) = inline_key_passphrase {
+        crate::security::credentials::zeroize_string(&mut value);
+    }
 
     Ok(id)
 }
@@ -320,10 +473,11 @@ pub async fn connect_server(
 /// 断开连接
 #[tauri::command]
 pub async fn disconnect(app: AppHandle, state: State<'_, SshManager>, id: u64) -> Result<(), String> {
-    if let Some(entry) = state.sessions.lock().await.remove(&id) {
-        {
-            let _ = entry.term_writer.close().await;
-        }
+    if let Some(entry) = state.take_entry(id).await {
+        entry
+            .reader_done
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = entry.term_writer.close().await;
         *entry.status.lock().await = SessionStatus::Closed;
         let _ = app.emit(EV_TERM_EXIT, (id, "closed".to_string(), "用户主动断开".to_string()));
     }
@@ -410,8 +564,58 @@ pub async fn close_session_channel(
     state: State<'_, SshManager>,
     id: u64,
 ) -> Result<(), String> {
-    if let Some(entry) = state.sessions.lock().await.remove(&id) {
+    if let Some(entry) = state.take_entry(id).await {
         let _ = entry.term_writer.close().await;
     }
     Ok(())
+}
+
+/// 查询一台服务器在本机记录的指纹(用于设置页展示/清理)
+#[tauri::command]
+pub fn trusted_host_fingerprint(
+    app: AppHandle,
+    host: String,
+    port: u16,
+) -> Option<HostKeyObservation> {
+    let store = Store::new(&app);
+    let path = known_hosts_path(store.config_dir());
+    let keys = crate::security::known_hosts::recorded_keys(&path, &host, port);
+    let key = keys.first()?;
+    Some(HostKeyObservation {
+        status: HostKeyStatus::Trusted,
+        host,
+        port,
+        fingerprint: key.fingerprint(russh::keys::HashAlg::Sha256).to_string(),
+        algorithm: key.algorithm().to_string(),
+        previous_fingerprint: None,
+    })
+}
+
+/// 清除某台主机的信任记录
+#[tauri::command]
+pub fn forget_host_key(app: AppHandle, host: String, port: u16) -> Result<(), String> {
+    let store = Store::new(&app);
+    let path = known_hosts_path(store.config_dir());
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let target_plain = host.clone();
+    let target_port = format!("[{host}]:{port}");
+    let kept: Vec<&str> = content
+        .lines()
+        .filter(|line| {
+            let Some(hosts) = line.split_whitespace().next() else {
+                return true;
+            };
+            if hosts.starts_with('|') {
+                return true;
+            }
+            !hosts
+                .split(',')
+                .any(|h| h == target_plain || h == target_port)
+        })
+        .collect();
+    let mut text = kept.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    std::fs::write(&path, text).map_err(|e| e.to_string())
 }

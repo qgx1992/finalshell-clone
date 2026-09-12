@@ -77,12 +77,24 @@ export default function MonitorPanel({ sessionId, serverName, onClose }: Props) 
 
   useEffect(() => {
     let stopped = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // 连续失败次数:用于指数退避,避免服务器卡顿时请求堆积
+    let failures = 0;
 
-    const tick = async () => {
+    const BASE_INTERVAL = 2000;
+    const MAX_INTERVAL = 30000;
+
+    const schedule = (delay: number) => {
+      if (stopped) return;
+      timer = setTimeout(run, delay);
+    };
+
+    const run = async () => {
       try {
+        // 串行执行:上一次采样结束后才安排下一次,不会产生重叠请求
         const s = await monitorPoll(sessionId);
         if (stopped) return;
+        failures = 0;
         setSnap(s);
         const h = histRef.current;
         const push = (arr: number[], v: number) => {
@@ -97,16 +109,22 @@ export default function MonitorPanel({ sessionId, serverName, onClose }: Props) 
         setRxHist(push(h.rx, s.net_rx_speed));
         setTxHist(push(h.tx, s.net_tx_speed));
         setError(null);
+        schedule(BASE_INTERVAL);
       } catch (e) {
-        if (!stopped) setError(String(e));
+        if (stopped) return;
+        failures += 1;
+        const message = e instanceof Error ? e.message : String(e);
+        setError(message);
+        // 后台主机不可用时逐步拉长间隔,最多 30 秒
+        const delay = Math.min(BASE_INTERVAL * 2 ** (failures - 1), MAX_INTERVAL);
+        schedule(delay);
       }
     };
 
-    tick();
-    timer = setInterval(tick, 2000);
+    void run();
     return () => {
       stopped = true;
-      if (timer) clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
   }, [sessionId]);
 

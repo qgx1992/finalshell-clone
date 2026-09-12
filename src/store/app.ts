@@ -7,15 +7,20 @@ import {
   saveServer as apiSaveServer,
   saveSettings as apiSaveSettings,
 } from "../api";
-import type { AppSettings, ServerConfig } from "../types";
+import type { AppSettings, SecretsInput, ServerConfig } from "../types";
 
-/** 旧版本保存的服务器没有 conn_type / rdp_* 字段,统一补默认值 */
+/** 旧版本保存的服务器缺少新字段,统一补默认值 */
 function normalizeServers(servers: ServerConfig[]): ServerConfig[] {
   return servers.map((s) => ({
     ...s,
     conn_type: s.conn_type ?? "ssh",
     rdp_resolution: s.rdp_resolution || "fullscreen",
     rdp_clipboard: s.rdp_clipboard ?? true,
+    has_password: s.has_password ?? false,
+    has_key_passphrase: s.has_key_passphrase ?? false,
+    proxy: s.proxy
+      ? { ...s.proxy, kind: s.proxy.kind || "socks5" }
+      : s.proxy,
   }));
 }
 
@@ -41,7 +46,7 @@ interface AppState {
 
   init: () => Promise<void>;
   refreshServers: () => Promise<void>;
-  upsertServer: (s: ServerConfig) => Promise<void>;
+  upsertServer: (s: ServerConfig, secrets?: SecretsInput) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
   updateSettings: (patch: Partial<AppSettings>) => Promise<void>;
 
@@ -50,23 +55,30 @@ interface AppState {
   setActiveTab: (key: string) => void;
   setSession: (key: string, sessionId: number) => void;
   setTabStatus: (key: string, status: Tab["status"], error?: string) => void;
+  /** 后端会话已消失时,清空标签上的会话引用(不发送 disconnect) */
+  clearSession: (key: string) => void;
   /** 断开标签的连接(清空 sessionId,状态置 closed) */
   disconnectTab: (key: string) => Promise<void>;
   /** 请求重连(由 TerminalPanel 监听信号实际执行连接) */
   requestReconnect: (key: string) => void;
+  /** 标签状态是否允许建立新连接(防重入) */
+  canConnect: (key: string) => boolean;
 }
 
 let tabSeq = 0;
 
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: "dark",
+  color_scheme: "Monokai Remastered",
+  font_size: 14,
+  quick_commands: [],
+  last_servers: [],
+  scrollback: 5000,
+};
+
 export const useApp = create<AppState>((set, get) => ({
   servers: [],
-  settings: {
-    theme: "dark",
-    color_scheme: "Monokai Remastered",
-    font_size: 14,
-    quick_commands: [],
-    last_servers: [],
-  },
+  settings: { ...DEFAULT_SETTINGS },
   tabs: [],
   activeTabKey: null,
   sessionToTab: {},
@@ -74,15 +86,19 @@ export const useApp = create<AppState>((set, get) => ({
 
   init: async () => {
     const [servers, settings] = await Promise.all([listServers(), getSettings()]);
-    set({ servers: normalizeServers(servers), settings });
+    set({
+      servers: normalizeServers(servers),
+      // 兼容旧配置文件:缺少 scrollback 时补默认值
+      settings: { ...DEFAULT_SETTINGS, ...settings, scrollback: settings.scrollback || 5000 },
+    });
   },
 
   refreshServers: async () => {
     set({ servers: normalizeServers(await listServers()) });
   },
 
-  upsertServer: async (s) => {
-    await apiSaveServer(s);
+  upsertServer: async (s, secrets) => {
+    await apiSaveServer(s, secrets);
     await get().refreshServers();
   },
 
@@ -147,6 +163,19 @@ export const useApp = create<AppState>((set, get) => ({
     }));
   },
 
+  clearSession: (key) => {
+    const { sessionToTab } = get();
+    const tab = get().tabs.find((t) => t.key === key);
+    const st = { ...sessionToTab };
+    if (tab?.sessionId != null) delete st[tab.sessionId];
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.key === key ? { ...t, sessionId: null, status: "closed" as const } : t
+      ),
+      sessionToTab: st,
+    }));
+  },
+
   disconnectTab: async (key) => {
     const { tabs, sessionToTab } = get();
     const tab = tabs.find((t) => t.key === key);
@@ -171,5 +200,12 @@ export const useApp = create<AppState>((set, get) => ({
         [key]: (s.reconnectSeq[key] ?? 0) + 1,
       },
     }));
+  },
+
+  canConnect: (key) => {
+    const tab = get().tabs.find((t) => t.key === key);
+    if (!tab) return false;
+    // 已连接或正在连接时不允许再次发起,避免重复会话
+    return tab.sessionId == null && tab.status !== "connecting";
   },
 }));

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
 import {
   listDir,
@@ -11,6 +10,7 @@ import {
   sftpUpload,
 } from "../api";
 import type { FileEntry } from "../types";
+import { onSftpProgress } from "../events/terminalRouter";
 import ContextMenu, { type CtxMenuState } from "./ContextMenu";
 
 interface Props {
@@ -97,22 +97,18 @@ export default function SftpPanel({ sessionId, collapsed, onToggle, onEditFile }
     };
   }, [sessionId, load]);
 
-  // 传输进度
+  // 传输进度:通过全局路由订阅,只接收本会话的事件
   useEffect(() => {
-    let un: (() => void) | null = null;
-    listen<[number, string, string, string, number, number]>("sftp-progress", (e) => {
-      const [sid, kind, src, , written, total] = e.payload;
-      if (sid !== sessionId) return;
+    const unsubscribe = onSftpProgress(sessionId, (payload) => {
+      const [, kind, src, , written, total] = payload;
       const name = src.split(/[\\/]/).pop() ?? src;
       setTransfers((prev) => {
         const others = prev.filter((t) => t.name !== name || t.kind !== kind);
         if (written >= total && total > 0) return others; // 完成移除
         return [...others, { kind, name, written, total }];
       });
-    }).then((u) => (un = u));
-    return () => {
-      un?.();
-    };
+    });
+    return unsubscribe;
   }, [sessionId]);
 
   const enterDir = (fe: FileEntry) => {

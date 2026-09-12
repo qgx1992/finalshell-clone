@@ -209,7 +209,9 @@ finalshell-clone/
 │   │   │                        #   / ConnectionDialog / EditorModal / QuickCommandPanel
 │   │   │                        #   / SettingsModal / ContextMenu / TabBar / Sparkline
 │   ├── store/app.ts             # zustand 全局状态(tabs / servers / settings)
-│   ├── api.ts                   # Tauri invoke 封装 + listen 事件订阅
+│   ├── api.ts                   # Tauri invoke 封装 + 结构化错误
+│   ├── events/terminalRouter.ts # 全局终端/SFTP 事件路由
+│   ├── generated/               # 由 Rust 类型生成的 TS 定义
 │   ├── themes.ts                # 10 套终端配色方案
 │   ├── types.ts                 # 与 Rust 后端对应的类型定义
 │   ├── main.tsx / App.tsx      # 入口与布局
@@ -219,9 +221,14 @@ finalshell-clone/
 │   │   ├── lib.rs               # 命令注册(app 入口)
 │   │   ├── main.rs              # Windows 子系统入口
 │   │   ├── ssh/
-│   │   │   ├── manager.rs       # russh 会话管理 + 终端读循环 + exec
-│   │   │   └── sftp.rs          # SFTP 文件操作
-│   │   ├── monitor.rs           # 系统监控采样与解析
+│   │   │   ├── manager.rs       # russh 会话管理 + 终端读循环 + 主机指纹校验
+│   │   │   ├── proxy.rs         # SOCKS5 / HTTP CONNECT 代理
+│   │   │   └── sftp.rs          # SFTP 文件操作(原子写入/原生递归删除)
+│   │   ├── security/
+│   │   │   ├── credentials.rs   # 系统凭据库封装
+│   │   │   └── known_hosts.rs   # TOFU 主机密钥校验
+│   │   ├── monitor.rs           # 跨平台监控采样与解析
+│   │   ├── error.rs             # 结构化错误类型
 │   │   └── store.rs             # 配置持久化(servers.json / settings.json)
 │   ├── webview2-hook.nsh        # NSIS 钩子:打包 WebView2Loader.dll
 │   ├── tauri.conf.json          # Tauri 配置
@@ -232,16 +239,20 @@ finalshell-clone/
 └── e2e_test.py                  # CDP 驱动的 UI 自动化测试
 ```
 
-## ⚠️ 已知限制(第一版)
+## ⚠️ 已知限制
 
-- 密码以明文保存在本地配置文件中(后续可接入系统钥匙串)
-- SSH 代理配置暂未启用(`ServerConfig` 已含 `proxy` 字段,未接线)
-- 端口转发 / RDP 远程桌面 / 海外加速尚未实现
+- 端口转发 / 海外加速尚未实现
 - 未实现终端 cd 与 SFTP 面板目录自动同步(有 `sftp_pwd` 命令预留,可手动刷新)
-- 服务器密钥直接信任(`check_server_key` 返回 `Ok(true)`),未做 TOFU(首次信任)校验
+- RDP 依赖系统客户端:Windows 用 `mstsc.exe`,Linux/macOS 需自行安装 FreeRDP(`xfreerdp`)
+- 内置编辑器仅支持文本文件,上限 5 MB;更大的文件请下载后用专业工具编辑
+- 监控依赖远程系统的内置命令,Linux/Windows/macOS 之外的系统不支持
 
-## 🛡 安全须知
+## 🛡 安全设计(0.4.0 起)
 
-- `src-tauri/src/ssh/manager.rs` 中 `SshHandler::check_server_key` 直接信任服务器密钥——
-  存在中间人攻击风险,生产使用前应改为 TOFU 或校验服务器指纹。
-- 应用配置 `"security": { "csp": null }`,未启用内容安全策略。
+- **主机密钥校验(TOFU)**:首次连接展示 SHA256 指纹,由用户确认后写入本应用的 `known_hosts`;
+  之后指纹不一致会拒绝连接并提示新旧指纹对比,避免中间人攻击。
+- **凭据存系统凭据库**:登录密码、私钥口令、代理密码保存在操作系统凭据管理中,
+  不写入配置文件,也不会下发到前端。
+- **内容安全策略已启用**:`tauri.conf.json` 配置了 CSP,插件权限收敛到实际使用的范围。
+- **SFTP 递归删除不跟随符号链接**,且限制单次删除条目数;编辑器保存采用原子写入。
+- 日志不记录任何凭据。

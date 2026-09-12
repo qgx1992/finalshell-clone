@@ -100,17 +100,69 @@ fn build_rdp(server: &ServerConfig, work_area: Option<(i32, i32, u32, u32)>) -> 
     )
 }
 
-/// 拉起 RDP:写入临时 .rdp 文件后调用 mstsc.exe(系统自带)
-#[tauri::command]
-pub fn connect_rdp(app: tauri::AppHandle, server: ServerConfig) -> Result<(), String> {
-    let display = parse_resolution(&server.rdp_resolution);
-    // 主显示器工作区(排除任务栏),用于把固定分辨率窗口居中
-    let work_area = app.primary_monitor().ok().flatten().map(|m| {
+/// 远程桌面后端抽象。
+///
+/// 应用只负责编排:.rdp 文件生成 + 调用系统/开源客户端,具体客户端由平台决定。
+#[allow(dead_code)] // FreeRdp/Unsupported 仅在非 Windows 平台构造
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RdpBackend {
+    /// Windows 自带 mstsc.exe
+    Mstsc,
+    /// Linux / macOS 上的 FreeRDP (xfreerdp / wlfreerdp)
+    FreeRdp,
+    /// 没有可用客户端
+    Unsupported,
+}
+
+/// 选择当前平台可用的后端,并探测 FreeRDP 是否存在
+fn detect_backend() -> RdpBackend {
+    #[cfg(target_os = "windows")]
+    {
+        RdpBackend::Mstsc
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        for bin in ["xfreerdp", "wlfreerdp", "xfreerdp3"] {
+            if Command::new(bin)
+                .arg("/version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok()
+            {
+                return RdpBackend::FreeRdp;
+            }
+        }
+        RdpBackend::Unsupported
+    }
+}
+
+/// 读出显示器工作区,用于固定分辨率窗口居中
+fn work_area_of(app: &tauri::AppHandle) -> Option<(i32, i32, u32, u32)> {
+    app.primary_monitor().ok().flatten().map(|m| {
         let wa = m.work_area();
         (wa.position.x, wa.position.y, wa.size.width, wa.size.height)
-    });
+    })
+}
+
+/// 拉起 RDP。按平台选择 mstsc.exe 或 FreeRDP。
+#[tauri::command]
+pub fn connect_rdp(app: tauri::AppHandle, server: ServerConfig) -> Result<(), String> {
+    match detect_backend() {
+        RdpBackend::Mstsc => connect_with_mstsc(&app, &server),
+        RdpBackend::FreeRdp => connect_with_freerdp(&server),
+        RdpBackend::Unsupported => Err(
+            "当前系统未找到远程桌面客户端。Linux/macOS 请安装 FreeRDP(xfreerdp)后重试".into(),
+        ),
+    }
+}
+
+/// Windows:生成临时 .rdp 并调用系统 mstsc
+fn connect_with_mstsc(app: &tauri::AppHandle, server: &ServerConfig) -> Result<(), String> {
+    let display = parse_resolution(&server.rdp_resolution);
+    let work_area = work_area_of(app);
     let rdp_path = std::env::temp_dir().join(format!("finalshell-x-{}.rdp", server.id));
-    fs::write(&rdp_path, build_rdp(&server, work_area))
+    fs::write(&rdp_path, build_rdp(server, work_area))
         .map_err(|e| format!("写入 .rdp 失败: {e}"))?;
 
     let child = Command::new("mstsc.exe")
@@ -124,8 +176,56 @@ pub fn connect_rdp(app: tauri::AppHandle, server: ServerConfig) -> Result<(), St
     if server.rdp_clipboard {
         rdp_consent::allow_clipboard_async(child.id());
     }
-
     Ok(())
+}
+
+/// Linux / macOS:复用 .rdp 内容字段,按 FreeRDP 命令行参数拉起
+fn connect_with_freerdp(server: &ServerConfig) -> Result<(), String> {
+    let display = parse_resolution(&server.rdp_resolution);
+    let bin = if cfg!(target_os = "macos") {
+        "xfreerdp"
+    } else {
+        "xfreerdp"
+    };
+
+    let mut cmd = Command::new(bin);
+    cmd.arg(format!("/v:{}:{}", server.host, server.port));
+    if !server.username.is_empty() {
+        cmd.arg(format!("/u:{}", server.username));
+    }
+    cmd.arg("/cert:ignore");
+    if server.rdp_clipboard {
+        cmd.arg("/clipboard");
+    }
+    match display {
+        Display::FullScreen => {
+            cmd.arg("/f");
+        }
+        Display::Auto => {
+            cmd.arg("/dynamic-resolution");
+        }
+        Display::Fixed(w, h) => {
+            cmd.args(["/dynamic-resolution:off", &format!("/w:{w}"), &format!("/h:{h}")]);
+        }
+    }
+    cmd.spawn()
+        .map_err(|e| format!("启动 FreeRDP 失败: {e}"))?;
+    Ok(())
+}
+
+/// 清理本机遗留的临时 .rdp 文件(应用启动时调用)
+pub fn cleanup_temp_files() {
+    let dir = std::env::temp_dir();
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("finalshell-x-") && name.ends_with(".rdp") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 #[cfg(test)]

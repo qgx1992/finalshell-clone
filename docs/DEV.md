@@ -88,3 +88,46 @@ src/components/
   TerminalPanel.tsx         # xterm.js 终端 + SSH 事件订阅
 src-tauri/target-msvc/      # MSVC 编译产物(已 gitignore)
 ```
+
+## 6. 安全与凭据(0.4.0 起)
+
+### 6.1 主机密钥校验(TOFU)
+
+- 实现在 `src-tauri/src/security/known_hosts.rs`,复用 OpenSSH `known_hosts` 文本格式。
+- 文件位置:应用配置目录下的 `known_hosts`(与系统 `~/.ssh/known_hosts` 隔离)。
+- 流程:首次连接 → `connect_server` 返回 `host_key_unknown` + SHA256 指纹 →
+  前端 `HostKeyDialog` 展示给用户 → 用户确认后带上 `hostKeyDecision`/`hostKeyFingerprint` 重试。
+- 指纹不匹配 → `host_key_changed`,同时返回旧指纹;确认接口只接受"当前指纹"本身,
+  防止确认后指纹被替换。
+- 设置页可查看已信任主机并清除记录。
+
+### 6.2 凭据存储
+
+- 登录密码、私钥口令、代理密码存操作系统凭据库(`keyring` crate)。
+- `servers.json` 中不再保存明文;`list_servers` 返回的配置经过 `sanitize`,只带 `has_password` 等标志。
+- 保存时前端通过 `SecretsInput` 表达意图:`keep` / `set` / `clear`,
+  避免"清空密码"与"未修改密码"混淆。
+- 启动时 `migrate_plaintext_secrets` 把旧配置的明文迁入凭据库并清空字段,备份为 `servers.json.bak`。
+
+### 6.3 代理
+
+- `src-tauri/src/ssh/proxy.rs`:`socks5`(经 `tokio-socks`)与 `http`(自实现 CONNECT 握手)。
+- `open_transport` 在直连与代理之间选择,返回 `TcpStream` 交给 `connect_stream`。
+
+## 7. 监控与平台适配
+
+- `monitor.rs` 首次轮询执行 `uname -s || ver` 判定平台并缓存。
+- Linux:`/proc/stat`、`/proc/meminfo`、`/proc/net/dev`、`df -Pk` 等。
+- Windows:PowerShell `Get-CimInstance` / `Get-NetAdapterStatistics`,CPU 取瞬时占用率。
+- macOS:`sysctl`、`vm_stat`、`netstat`、`df`。
+- 前端 `MonitorPanel` 采用串行轮询 + 指数退避,不会产生重叠请求。
+
+## 8. 测试与 CI
+
+- `npm run typecheck`:前端类型检查。
+- `npm run cargo:test`:后端单元测试,同时通过 `ts-rs` 导出 `src/generated/` 类型。
+- `npm run verify`:依次执行类型检查、后端测试、前端构建。
+- GitHub Actions(`.github/workflows/ci.yml`)在 Windows 下校验以上流程,
+  并检查 `src/generated` 是否与 Rust 类型保持同步。
+- 本地 `cargo` 通过 `scripts/cargo-msvc.mjs` 调用,自动注入 VS Build Tools 环境;
+  在普通终端下即可运行,无需打开 Developer Command Prompt。

@@ -68,7 +68,7 @@ export default function Sidebar({ onNewServer, onEditServer }: Props) {
   const connect = (s: ServerConfig) => {
     if (s.conn_type === "rdp") {
       // 远程 Windows:拉起系统远程桌面,不建 SSH 标签
-      connectRdp(s).catch((e) => alert(`拉起远程桌面失败: ${e}`));
+      connectRdp(s).catch((e) => alert("拉起远程桌面失败: " + (e instanceof Error ? e.message : String(e))));
       updateSettings({
         last_servers: [s.id, ...(settings.last_servers ?? []).filter((id) => id !== s.id)].slice(0, 8),
       });

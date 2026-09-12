@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { TERM_SCHEMES } from "../themes";
 import { useApp } from "../store/app";
-import type { ServerConfig } from "../types";
+import { forgetHostKey, trustedHostFingerprint } from "../api";
+import type { HostKeyObservation } from "../types";
 
 interface Props {
   onClose: () => void;
@@ -9,15 +10,49 @@ interface Props {
 
 export default function SettingsModal({ onClose }: Props) {
   const settings = useApp((s) => s.settings);
+  const servers = useApp((s) => s.servers);
   const updateSettings = useApp((s) => s.updateSettings);
 
   const [theme, setTheme] = useState(settings.theme);
   const [scheme, setScheme] = useState(settings.color_scheme);
   const [fontSize, setFontSize] = useState(settings.font_size);
+  const [scrollback, setScrollback] = useState(settings.scrollback ?? 5000);
+
+  // 主机信任管理:按需查询,避免打开设置时批量访问文件
+  const [trusted, setTrusted] = useState<Record<string, HostKeyObservation | null>>({});
+  const [checking, setChecking] = useState(false);
+
+  const sshServers = servers.filter((s) => s.conn_type !== "rdp");
 
   const apply = () => {
-    updateSettings({ theme, color_scheme: scheme, font_size: fontSize });
+    updateSettings({
+      theme,
+      color_scheme: scheme,
+      font_size: fontSize,
+      scrollback,
+    });
     onClose();
+  };
+
+  const loadTrusted = async () => {
+    setChecking(true);
+    const entries = await Promise.all(
+      sshServers.map(async (s) => {
+        try {
+          const obs = await trustedHostFingerprint(s.host, s.port);
+          return [s.id, obs] as const;
+        } catch {
+          return [s.id, null] as const;
+        }
+      })
+    );
+    setTrusted(Object.fromEntries(entries));
+    setChecking(false);
+  };
+
+  const forget = async (host: string, port: number, id: string) => {
+    await forgetHostKey(host, port);
+    setTrusted((prev) => ({ ...prev, [id]: null }));
   };
 
   return (
@@ -58,6 +93,58 @@ export default function SettingsModal({ onClose }: Props) {
               <span>{fontSize}px</span>
             </div>
           </label>
+          <label className="form-full">
+            终端回滚行数
+            <div className="font-size-row">
+              <input
+                type="range"
+                min={1000}
+                max={50000}
+                step={1000}
+                value={scrollback}
+                onChange={(e) => setScrollback(parseInt(e.target.value))}
+              />
+              <span>{scrollback} 行</span>
+            </div>
+          </label>
+          <div className="form-hint">
+            回滚行数越大越占内存。多个标签同时开启时,建议 3000~8000 行。
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-section-head">
+              <span>🔐 主机信任(known_hosts)</span>
+              <button className="btn-link" onClick={() => void loadTrusted()}>
+                {checking ? "查询中…" : "查看已信任主机"}
+              </button>
+            </div>
+            {Object.keys(trusted).length > 0 && (
+              <div className="trusted-list">
+                {sshServers.map((s) => {
+                  const obs = trusted[s.id];
+                  return (
+                    <div className="trusted-row" key={s.id}>
+                      <div className="trusted-info">
+                        <div className="trusted-host">{s.name} ({s.host}:{s.port})</div>
+                        <div className="trusted-fp">
+                          {obs ? obs.fingerprint : "未记录(首次连接时确认)"}
+                        </div>
+                      </div>
+                      {obs && (
+                        <button
+                          className="btn-link btn-danger-link"
+                          onClick={() => void forget(s.host, s.port, s.id)}
+                        >
+                          清除信任
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="scheme-preview">
             {TERM_SCHEMES.filter((t) => t.name === scheme).map((t) => (
               <div

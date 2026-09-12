@@ -144,6 +144,7 @@ export default function App() {
                         server={t.server}
                         scheme={scheme}
                         fontSize={settings.font_size}
+                        scrollback={settings.scrollback}
                         active={isActive}
                       />
                       {t.status === "closed" && (
@@ -155,7 +156,7 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                    {t.sessionId != null && (
+                    {t.sessionId != null && t.status === "connected" && (
                       <SftpPanel
                         sessionId={t.sessionId}
                         collapsed={sftpCollapsed}
@@ -181,7 +182,9 @@ export default function App() {
           )}
         </main>
 
-        {showMonitor && activeTab?.sessionId != null && (
+        {showMonitor &&
+          activeTab?.sessionId != null &&
+          activeTab.status === "connected" && (
           <aside className="app-monitor">
             <MonitorPanel
               sessionId={activeTab.sessionId}

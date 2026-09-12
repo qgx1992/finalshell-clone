@@ -1,7 +1,6 @@
-; NSIS 钩子:把 WebView2Loader.dll 复制进安装目录
-; (GNU 工具链下 exe 动态链接该 DLL,tauri-bundler 默认漏打包)
-; 注意:路径必须与构建时项目所在位置一致(tauri-bundler 不提供 PROJECTDIR 变量,
-; 只能写死构建机绝对路径;项目路径含空格时必须加引号)。
+; 本文件由 scripts/build-msvc.mjs 在打包前自动生成,请勿手工编辑。
+; MSVC 构建静态链接 WebView2,通常无需侧载 DLL;
+; 仅当 GNU 构建产物中存在 WebView2Loader.dll 时才一并打包。
 !macro NSIS_HOOK_PREINSTALL
-  File "D:\A-my project\finalshell-clone\src-tauri\target\release\WebView2Loader.dll"
+  ; 未找到 WebView2Loader.dll,跳过(MSVC 静态链接场景属正常)
 !macroend

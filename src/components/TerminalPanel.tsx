@@ -3,12 +3,13 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CanvasAddon } from "@xterm/addon-canvas";
-import { listen } from "@tauri-apps/api/event";
-import { connectServer, resizeTerminal, writeTerminal } from "../api";
+import { onTermData, onTermExit } from "../events/terminalRouter";
+import { ApiError, connectServer, disconnect, resizeTerminal, writeTerminal } from "../api";
 import { useApp } from "../store/app";
-import type { ServerConfig } from "../types";
+import type { HostKeyObservation, ServerConfig } from "../types";
 import { DEFAULT_SCHEME, type TermScheme } from "../themes";
 import ContextMenu, { type CtxMenuState } from "./ContextMenu";
+import HostKeyDialog from "./HostKeyDialog";
 
 // ---------- 高效 base64 解码 ----------
 // 查表 + 每 4 字符一组解码,比 Uint8Array.from(atob(), charCodeAt) 快;
@@ -37,7 +38,7 @@ function decodeBase64(input: string): Uint8Array {
     let n = 0;
     while (i < len && n < 4) {
       const code = input.charCodeAt(i++);
-      if (code === 61) break; // '=' padding 结束
+      if (code === 61) break; // "=" padding 结束
       const v = code < 128 ? B64_TABLE[code] : -1;
       if (v < 0) continue; // 跳过空白/非法字符
       acc = (acc << 6) | v;
@@ -58,17 +59,33 @@ interface Props {
   server: ServerConfig;
   scheme: TermScheme;
   fontSize: number;
+  /** 终端回滚缓冲行数,后台标签越多越应调小 */
+  scrollback: number;
   /** 是否为活动标签;切回活动时重新 fit(隐藏期间尺寸为 0) */
   active?: boolean;
 }
 
-export default function TerminalPanel({ tabKey, server, scheme, fontSize, active }: Props) {
+export default function TerminalPanel({
+  tabKey,
+  server,
+  scheme,
+  fontSize,
+  scrollback,
+  active,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<number | null>(null);
   const disposedRef = useRef(false);
   const [menu, setMenu] = useState<CtxMenuState | null>(null);
+  // 待用户确认的主机指纹(首次连接或指纹变更)
+  const [hostKeyPrompt, setHostKeyPrompt] = useState<{
+    observation: HostKeyObservation;
+    changed: boolean;
+  } | null>(null);
+  // 待用户确认后重试的连接参数:用户确认时复用同一份凭据
+  const pendingRetryRef = useRef<(() => void) | null>(null);
   // 供标签页右键"重新连接"触发的连接函数(首个 effect 中定义)
   const doConnectRef = useRef<() => void>(() => {});
 
@@ -96,8 +113,9 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
   };
 
   const setSession = useApp((s) => s.setSession);
+  const clearSession = useApp((s) => s.clearSession);
   const setTabStatus = useApp((s) => s.setTabStatus);
-  const closeTab = useApp((s) => s.closeTab);
+  const canConnect = useApp((s) => s.canConnect);
 
   useEffect(() => {
     disposedRef.current = false;
@@ -106,7 +124,7 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
       fontFamily: '"Cascadia Code", Consolas, "Courier New", monospace',
       fontSize,
       cursorBlink: true,
-      scrollback: 10000,
+      scrollback,
       convertEol: false,
       theme: scheme.theme,
       allowProposedApi: true,
@@ -175,7 +193,7 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
       const id = sessionIdRef.current;
       if (id == null) return;
       writeTerminal(id, b64).catch((e) => {
-        term.writeln(`\r\n\x1b[31m[写入失败] ${String(e)}\x1b[0m`);
+        term.writeln("\r\n\x1b[31m[写入失败] " + String(e) + "\x1b[0m");
       });
     };
     const dataDispose = term.onData((data) => {
@@ -185,56 +203,89 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
       }
     });
 
-    let unListeners: Array<() => void> = [];
+    // 事件订阅句柄:会话建立后注册到全局路由,断开/卸载时注销
+    let unsubData: (() => void) | null = null;
+    let unsubExit: (() => void) | null = null;
 
-    // 事件监听一次性注册(用 sessionIdRef 过滤会话,断开重连后复用,避免重复监听)
+    // 事件订阅:交给全局路由按 sessionId 分发,避免每个标签都接收全部输出
     const decoder = new TextDecoder();
-    listen<[number, string, string]>("term-data", (e) => {
-      if (disposedRef.current) return;
-      const [sid, b64, stream] = e.payload;
-      if (sid !== sessionIdRef.current) return;
-      try {
-        const bytes = decodeBase64(b64);
-        term.write(decoder.decode(bytes, { stream: true }));
-      } catch {
-        /* ignore */
-      }
-      void stream;
-    }).then((un) => unListeners.push(un));
-
-    listen<[number, string, string]>("term-exit", (e) => {
-      if (disposedRef.current) return;
-      const [sid, status, reason] = e.payload;
-      if (sid !== sessionIdRef.current) return;
-      if (status === "closed") {
-        // 会话已失效,清引用避免续向旧会话写入输入/尺寸
-        sessionIdRef.current = null;
-        setTabStatus(tabKey, "closed", reason);
-        term.writeln(`\r\n\x1b[90m[连接已断开] ${reason}\x1b[0m`);
-      }
-    }).then((un) => unListeners.push(un));
+    const unsubscribeSession = () => {
+      unsubData?.();
+      unsubExit?.();
+      unsubData = null;
+      unsubExit = null;
+    };
+    const subscribeSession = (sid: number) => {
+      unsubscribeSession();
+      unsubData = onTermData(sid, (b64) => {
+        if (disposedRef.current) return;
+        try {
+          const bytes = decodeBase64(b64);
+          term.write(decoder.decode(bytes, { stream: true }));
+        } catch {
+          /* ignore */
+        }
+      });
+      unsubExit = onTermExit(sid, (status, reason) => {
+        if (disposedRef.current) return;
+        if (status === "closed") {
+          // 会话已失效:清空组件引用与全局状态,避免残留 sessionId
+          sessionIdRef.current = null;
+          unsubscribeSession();
+          clearSession(tabKey);
+          term.writeln("\r\n\x1b[90m[连接已断开] " + reason + "\x1b[0m");
+        }
+      });
+    };
 
     // 连接逻辑:首次挂载与标签页右键"重新连接"共用
-    const doConnect = () => {
+    const doConnect = (trust?: {
+      decision: "trust_new" | "trust_changed";
+      fingerprint: string;
+    }) => {
       if (disposedRef.current) return;
       const hadSession = sessionIdRef.current != null; // 已断开过 → 属重连场景
       setTabStatus(tabKey, "connecting");
-      connectServer(server)
+      connectServer(server, {
+        hostKeyDecision: trust?.decision,
+        hostKeyFingerprint: trust?.fingerprint,
+      })
         .then((id) => {
           if (disposedRef.current) {
             return; // 组件已卸载
           }
           sessionIdRef.current = id;
+          subscribeSession(id);
           setSession(tabKey, id);
           setTabStatus(tabKey, "connected");
+          setHostKeyPrompt(null);
+          pendingRetryRef.current = null;
           if (hadSession) {
             term.writeln("\r\n\x1b[32m[已连接]\x1b[0m");
           }
         })
         .catch((e) => {
           if (disposedRef.current) return;
+          const err = e instanceof ApiError ? e : null;
+          const body = err?.body;
+          // 主机指纹待确认/已变更:弹窗让用户决定,不当作连接失败
+          if (
+            body &&
+            (body.code === "host_key_unknown" || body.code === "host_key_changed")
+          ) {
+            const changed = body.code === "host_key_changed";
+            const obs = body.observation;
+            setHostKeyPrompt({ observation: obs, changed });
+            pendingRetryRef.current = () =>
+              doConnect({
+                decision: changed ? "trust_changed" : "trust_new",
+                fingerprint: obs.fingerprint,
+              });
+            setTabStatus(tabKey, "closed");
+            return;
+          }
           setTabStatus(tabKey, "closed", String(e));
-          term.writeln(`\r\n\x1b[31m[连接失败] ${String(e)}\x1b[0m`);
+          term.writeln("\r\n\x1b[31m[连接失败] " + String(e) + "\x1b[0m");
         });
     };
     doConnectRef.current = doConnect;
@@ -248,11 +299,10 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
       // 卸载前把缓冲的输入发出去
       if (inputTimer != null) clearTimeout(inputTimer);
       flushInput();
-      unListeners.forEach((u) => u());
-      unListeners = [];
+      unsubscribeSession();
       const id = sessionIdRef.current;
       if (id != null) {
-        import("../api").then(({ disconnect }) => disconnect(id).catch(() => {}));
+        disconnect(id).catch(() => {});
       }
       term.dispose();
       termRef.current = null;
@@ -277,8 +327,10 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
   const reconnectSeq = useApp((s) => s.reconnectSeq[tabKey]);
   useEffect(() => {
     if (!reconnectSeq) return;
+    // 防重入:已连接或连接中不重复发起
+    if (!canConnect(tabKey)) return;
     doConnectRef.current();
-  }, [reconnectSeq]);
+  }, [reconnectSeq, tabKey, canConnect]);
 
   // 标签从隐藏切回活动:display:none 期间尺寸为 0,重新 fit 并同步远程窗口尺寸
   useEffect(() => {
@@ -304,6 +356,7 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
   return (
     <div
       ref={containerRef}
+      className="terminal-host"
       style={{
         width: "100%",
         height: "100%",
@@ -315,6 +368,21 @@ export default function TerminalPanel({ tabKey, server, scheme, fontSize, active
       }}
     >
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {hostKeyPrompt && (
+        <HostKeyDialog
+          observation={hostKeyPrompt.observation}
+          changed={hostKeyPrompt.changed}
+          onConfirm={() => {
+            const retry = pendingRetryRef.current;
+            setHostKeyPrompt(null);
+            retry?.();
+          }}
+          onCancel={() => {
+            setHostKeyPrompt(null);
+            pendingRetryRef.current = null;
+          }}
+        />
+      )}
     </div>
   );
 }

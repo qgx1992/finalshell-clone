@@ -1,22 +1,26 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
+use ts_rs::TS;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
-use super::manager::{run_command, SessionEntry, SshManager};
+use super::manager::{SessionEntry, SshManager};
 
 pub const EV_SFTP_PROGRESS: &str = "sftp-progress";
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, TS)]
+#[ts(export, export_to = "../../src/generated/")]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
     pub is_symlink: bool,
+    #[ts(type = "number")]
     pub size: u64,
+    #[ts(type = "number")]
     pub modified: u64,
     pub permissions: String,
 }
@@ -151,26 +155,83 @@ pub async fn sftp_delete(
         .cloned()
         .ok_or_else(|| format!("会话 {id} 不存在"))?;
     let sftp = get_sftp(&entry).await?;
-    // 用 SFTP 元数据判断类型
+    // 用 symlink_metadata 判断类型:符号链接本身按文件删除,绝不跟随,
+    // 避免 rm -rf 语义下把链接指向的目录内容一并删掉。
     let meta = sftp
-        .metadata(&path)
+        .symlink_metadata(&path)
         .await
         .map_err(|e| format!("获取元数据失败: {e}"))?;
     if meta.file_type().is_dir() {
-        // 递归删除目录:shell 方式(可靠且快),路径经引号转义
-        let escaped = path.replace('\'', "'\\''");
-        run_command(
-            &entry,
-            &format!("rm -rf -- '{escaped}'"),
-            Duration::from_secs(30),
-        )
-        .await?;
+        delete_dir_recursive(&sftp, &path).await?;
     } else {
         sftp.remove_file(&path)
             .await
             .map_err(|e| format!("删除文件失败: {e}"))?;
     }
     Ok(())
+}
+
+/// 原生递归删除目录。
+///
+/// 与旧的 `rm -rf` 方案相比:
+/// - 不依赖远程 shell 与路径引号转义
+/// - 使用 symlink_metadata,不跟随符号链接
+/// - 限制最大删除条目数,避免误选巨大目录时长时间阻塞
+async fn delete_dir_recursive(
+    sftp: &Arc<SftpSession>,
+    path: &str,
+) -> Result<(), String> {
+    const MAX_ENTRIES: usize = 100_000;
+    let mut stack = vec![path.to_string()];
+    let mut removed = 0usize;
+
+    while let Some(dir) = stack.pop() {
+        let entries = sftp
+            .read_dir(&dir)
+            .await
+            .map_err(|e| format!("读取目录 {dir} 失败: {e}"))?;
+        let mut children: Vec<String> = Vec::new();
+        let mut subdirs: Vec<String> = Vec::new();
+        for entry in entries {
+            let name = entry.file_name();
+            if name == "." || name == ".." {
+                continue;
+            }
+            let child = join_remote(&dir, &name);
+            removed += 1;
+            if removed > MAX_ENTRIES {
+                return Err(format!("目录条目超过 {MAX_ENTRIES} 条,已中止删除"));
+            }
+            let ft = entry.file_type();
+            if ft.is_dir() && !ft.is_symlink() {
+                subdirs.push(child);
+            } else {
+                children.push(child);
+            }
+        }
+        for child in children {
+            sftp.remove_file(&child)
+                .await
+                .map_err(|e| format!("删除文件 {child} 失败: {e}"))?;
+        }
+        // 先删除子目录内容,再删除自身
+        for sub in subdirs {
+            stack.push(sub);
+        }
+        sftp.remove_dir(&dir)
+            .await
+            .map_err(|e| format!("删除目录 {dir} 失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 拼接远程路径,避免出现双斜杠
+fn join_remote(parent: &str, name: &str) -> String {
+    if parent.ends_with('/') {
+        format!("{parent}{name}")
+    } else {
+        format!("{parent}/{name}")
+    }
 }
 
 /// 重命名/移动
@@ -337,14 +398,37 @@ pub async fn sftp_read_file(
         .cloned()
         .ok_or_else(|| format!("会话 {id} 不存在"))?;
     let sftp = get_sftp(&entry).await?;
+
+    // 内置编辑器是文本编辑器:超过限制的文件直接拒绝,避免前端内存暴涨
+    const MAX_EDIT_BYTES: u64 = 5 * 1024 * 1024;
+    let meta = sftp
+        .metadata(&remote_path)
+        .await
+        .map_err(|e| format!("读取文件信息失败: {e}"))?;
+    if meta.len() > MAX_EDIT_BYTES {
+        return Err(format!(
+            "文件大小 {:.1} MB 超过编辑器上限 5 MB,请下载到本地后用专业工具编辑",
+            meta.len() as f64 / (1024.0 * 1024.0)
+        ));
+    }
+
     let data = sftp
         .read(&remote_path)
         .await
         .map_err(|e| format!("读取文件失败: {e}"))?;
+
+    // 含 NUL 字节判定为二进制文件,编辑器打开会损坏内容
+    if data.iter().take(8192).any(|b| *b == 0) {
+        return Err("该文件看起来是二进制文件,无法用文本编辑器打开".into());
+    }
+
     Ok(B64.encode(&data))
 }
 
-/// 写入远程文件内容(内置编辑器用)
+/// 写入远程文件内容(内置编辑器用)。
+///
+/// 采用"临时文件 + 重命名"的原子写入:写入中途失败时原文件保持完整,
+/// 不会出现被截断成半个文件的情况。
 #[tauri::command]
 pub async fn sftp_write_file(
     state: State<'_, SshManager>,
@@ -363,17 +447,34 @@ pub async fn sftp_write_file(
     let data = B64
         .decode(&content_b64)
         .map_err(|e| format!("内容解码失败: {e}"))?;
-    // 用 create(带 TRUNCATE)整体覆盖,避免残留旧内容
-    let mut file = sftp
-        .create(&remote_path)
-        .await
-        .map_err(|e| format!("打开远程文件失败: {e}"))?;
-    tokio::io::AsyncWriteExt::write_all(&mut file, &data)
-        .await
-        .map_err(|e| format!("写入文件失败: {e}"))?;
-    file.close()
-        .await
-        .map_err(|e| format!("关闭文件失败: {e}"))?;
+
+    // 临时文件放在同目录,保证 rename 不跨文件系统
+    let tmp_path = format!("{remote_path}.fina-tmp-{}", uuid::Uuid::new_v4().simple());
+
+    let mut file = match sftp.create(&tmp_path).await {
+        Ok(f) => f,
+        Err(e) => return Err(format!("创建临时文件失败: {e}")),
+    };
+    if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, &data).await {
+        let _ = file.close().await;
+        let _ = sftp.remove_file(&tmp_path).await;
+        return Err(format!("写入临时文件失败: {e}"));
+    }
+    if let Err(e) = file.close().await {
+        let _ = sftp.remove_file(&tmp_path).await;
+        return Err(format!("关闭临时文件失败: {e}"));
+    }
+
+    // 覆盖前先删除目标(部分 SFTP 服务器 rename 不覆盖已存在文件)
+    if sftp.metadata(&remote_path).await.is_ok() {
+        sftp.remove_file(&remote_path)
+            .await
+            .map_err(|e| format!("替换原文件失败: {e}"))?;
+    }
+    if let Err(e) = sftp.rename(&tmp_path, &remote_path).await {
+        let _ = sftp.remove_file(&tmp_path).await;
+        return Err(format!("重命名临时文件失败: {e}"));
+    }
     Ok(())
 }
 

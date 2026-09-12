@@ -29,3 +29,6 @@ screenshot.png
 # Windows
 Thumbs.db
 Desktop.ini
+
+# 本地数据备份(不提交)
+*.bak

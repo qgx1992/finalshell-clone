@@ -1,0 +1,21 @@
+# 统一换行符策略
+#
+# 背景：ts-rs 生成的 src/generated/*.ts 使用 LF；在 Windows 上若 Git 把
+# 检出的文本文件转换成 CRLF，CI 中 "生成物与提交一致" 的校验会误报差异，
+# 同时也会让不同平台的工作区字节不一致。这里强制仓库内文本文件统一为 LF。
+* text=auto eol=lf
+
+# 二进制资源禁止任何文本转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.so binary
+*.dylib binary
+*.node binary
+*.zip binary

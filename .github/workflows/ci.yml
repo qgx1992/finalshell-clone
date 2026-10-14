@@ -47,8 +47,12 @@ jobs:
       - name: 检查生成的类型是否需要更新
         shell: bash
         run: |
-          if [ -n "$(git status --porcelain src/generated)" ]; then
-            echo "src/generated 与 Rust 类型不一致,请运行 npm run types:gen 后提交。"
+          # 注意:仓库根目录的 .gitattributes 固定了文本文件换行符为 LF。
+          # 若这里出现改动,通常是 ts-rs 输出变了,而不是平台换行符差异。
+          changed="$(git status --porcelain src/generated)"
+          if [ -n "$changed" ]; then
+            echo "::error::src/generated 与 Rust 类型不一致,请运行 npm run types:gen 后提交。"
+            echo "$changed"
             git --no-pager diff src/generated
             exit 1
           fi

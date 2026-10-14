@@ -11,7 +11,7 @@
     "build:msvc": "node scripts/build-msvc.mjs",
     "cargo:check": "node scripts/cargo-msvc.mjs check --all-targets",
     "cargo:test": "node scripts/cargo-msvc.mjs test",
-    "types:gen": "node scripts/cargo-msvc.mjs test export_typescript_bindings",
+    "types:gen": "node scripts/cargo-msvc.mjs test export_bindings",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm run cargo:test && npm run build"
   },

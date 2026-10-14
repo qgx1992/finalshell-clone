@@ -60,8 +60,11 @@ npm run build:msvc   # = node scripts/build-msvc.mjs
 3. 通过 `npx tauri build`(参数透传,如 `npm run build:msvc -- --bundles nsis`)完成编译 + NSIS 打包。
 
 产物:
-- 安装包: `src-tauri/target-msvc/release/bundle/nsis/FinalShell Clone_0.1.0_x64-setup.exe`
-- 便携 exe: `src-tauri/target-msvc/release/finalshell-clone.exe`
+- 安装包: `src-tauri/target-msvc/release/bundle/nsis/FinalShell-X_<版本>_x64-setup.exe`
+- 便携 exe: `src-tauri/target-msvc/release/finalshell-x.exe`
+
+> NSIS 钩子 `webview2-hook.nsh` 由 `scripts/build-msvc.mjs` 按当前项目路径动态生成,
+> 换机器 / 换路径后无需手工修改。
 
 ### 3.3 只要可执行 exe,不要安装包
 
@@ -76,7 +79,7 @@ npx tauri build --no-bundle   # (与工具链无关,如需 MSVC 用 npm run buil
 | 打包报 `No such file or directory`(windres) | GNU 工具链 + 路径含空格 | 改用 `npm run build:msvc` |
 | 安装后无界面 | WebView2 Runtime / VC++ 2022 Runtime 缺失或过旧 | 详见 `README.md` 故障排查 |
 | 应用可运行但界面不出现 | WebView2 数据目录被旧进程锁定 | 删除 `%LOCALAPPDATA%\com.finalshell.clone\EBWebView` 后重启 |
-| NSIS 报 `no files found` | `webview2-hook.nsh` 内绝对路径与构建机不一致 | 按 `README.md` 修改该文件路径 |
+| NSIS 报 `no files found` | `webview2-hook.nsh` 内绝对路径与构建机不一致 | 重新运行 `npm run build:msvc` 让脚本重新生成该文件 |
 
 ## 5. 路由 / 目录
 
@@ -129,5 +132,8 @@ src-tauri/target-msvc/      # MSVC 编译产物(已 gitignore)
 - `npm run verify`:依次执行类型检查、后端测试、前端构建。
 - GitHub Actions(`.github/workflows/ci.yml`)在 Windows 下校验以上流程,
   并检查 `src/generated` 是否与 Rust 类型保持同步。
+- `npm run types:gen`:`cargo test export_bindings`,只跑 ts-rs 生成的导出测试,重写 `src/generated/`。
+- 仓库根 `.gitattributes` 固定 `* text=auto eol=lf`:ts-rs 只写 LF,若检出被转成 CRLF,
+  CI 的生成物校验会出现假差异,因此文本文件统一 LF。
 - 本地 `cargo` 通过 `scripts/cargo-msvc.mjs` 调用,自动注入 VS Build Tools 环境;
   在普通终端下即可运行,无需打开 Developer Command Prompt。

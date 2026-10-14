@@ -50,7 +50,7 @@
 ┌────────────── 前端 (src/, React + zustand) ──────────────┐
 │ App ── Sidebar / TabBar + TerminalPanel + SftpPanel / MonitorPanel │
 │ store/app.ts ── 全局状态(servers / settings / tabs)       │
-│ api.ts ── 21 个 Tauri invoke 封装 + listen 事件订阅        │
+│ api.ts ── 25 个 Tauri invoke 封装 + listen 事件订阅        │
 └───────────┬───────────────────────────────────────────────┘
             │ Tauri IPC:invoke 请求 + emit 事件推送
 ┌───────────▼─────────────── Rust 后端 (src-tauri/) ────────┐

@@ -32,3 +32,14 @@ Desktop.ini
 
 # 本地数据备份(不提交)
 *.bak
+
+# 打包/压缩相关的本地临时产物
+*.zip
+*.tar.gz
+*.tar.zst
+!src/**/*.zip
+
+# 扫描/调试产生的临时文件
+screenshot-*.png
+debug-run.log
+*.tmp

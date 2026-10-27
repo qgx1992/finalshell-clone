@@ -572,6 +572,8 @@ textarea {
   background: var(--bg2);
   border-top: 1px solid var(--border);
   user-select: none;
+  /* 打包浮层/结果提示按此定位 */
+  position: relative;
 }
 
 .sftp-collapsed {
@@ -711,6 +713,38 @@ textarea {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
+/* Ctrl 多选行:比单选更实的底色,并加左侧标记条 */
+.sftp-multi {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.sftp-multi-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.sftp-multi-clear {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.sftp-multi-clear:hover {
+  color: var(--danger, #d9534f);
+}
+
 .sftp-up {
   color: var(--text-dim);
   font-weight: 600;
@@ -782,6 +816,90 @@ textarea {
   width: 44px;
   text-align: right;
   color: var(--text-dim);
+}
+
+/* ============ 打包进度 ============ */
+.archive-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+
+.archive-dialog {
+  min-width: 260px;
+  max-width: 80%;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.archive-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.archive-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg3);
+  overflow: hidden;
+}
+
+.archive-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.archive-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.archive-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+.archive-notice {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  white-space: pre-wrap;
+  z-index: 20;
+}
+
+.archive-notice span {
+  flex: 1;
+  line-height: 1.5;
+}
+
+.archive-notice button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* ============ 监控面板 ============ */

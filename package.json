@@ -13,7 +13,8 @@
     "cargo:test": "node scripts/cargo-msvc.mjs test",
     "types:gen": "node scripts/cargo-msvc.mjs test export_bindings",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm run cargo:test && npm run build"
+    "check:versions": "node scripts/check-versions.mjs",
+    "verify": "npm run typecheck && npm run check:versions && npm run cargo:test && npm run build"
   },
   "dependencies": {
     "@codemirror/lang-cpp": "^6.0.2",

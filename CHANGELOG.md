@@ -3,6 +3,38 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的格式,
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+- **SFTP 右键一键打包**:文件列表右键菜单可对文件 / 目录生成 `ZIP` 或 `TAR.GZ`。
+  优先在**服务器侧**用 `zip` / `tar` 压缩(文件不出机房,速度最快),服务器缺工具、
+  条目过多或所选不在同一目录时自动回落到本地 SFTP 流式打包,并通过 `fallback_reason`
+  说明原因。打包过程有独立进度条(服务器端按条目、本地按字节),完成后自动刷新目录并选中产物。
+- **文件多选**:`Ctrl/⌘+点击` 增减选中、`Shift+点击` 从锚点连选,工具栏显示「已选 N 项」,
+  右键菜单文案随之变成「生成 ZIP 压缩包(N 项)」;右键某行会先把选择收敛到该行,
+  避免误打包其他条目。
+
+### 修复
+- 远程打包脚本对**以 `-` 开头**的文件名(如 `-rf`)前置 `./`,避免被 `tar` / `zip`
+  当成命令行选项。
+- zip 分支的进度分母改为**顶层条目数**(原来是递归展开后的文件数),否则一次选中多个
+  目录时进度条永远走不到 100%。
+
+### 工程化
+- 新增端到端冒烟测试 `e2e_test.py`(WebView2 CDP 驱动真实窗口),支持 `--full`
+  跑需要 SSH 测试机的完整流程;CI 新增 `e2e` job 自动执行冒烟。
+- CI 新增**版本号一致性校验**(`npm run check:versions`),覆盖 `package.json` /
+  `Cargo.toml` / `tauri.conf.json`。
+- `src/generated/` 补齐 `ArchiveFormat.ts` / `ArchiveInfo.ts`(ts-rs),与 Rust 类型同步。
+- `.gitignore` 补上 `*.zip` / `*.tar.gz` / `*.tar.zst` / `*.tmp` / `screenshot-*.png`
+  等本地打包与调试产物;清理了 `src-tauri/target`、`src-tauri/target-msvc` 中的
+  构建垃圾(约 34.6 GB)与 `__pycache__`。
+- `docs/DEV.md` 新增 **§3.4 无 MSVC 的机器用 MinGW(GNU)工具链出包**:
+  记录 `--target x86_64-pc-windows-gnu` + MinGW 置顶 `PATH` + `CARGO_TARGET_DIR`
+  指向无空格目录这三条硬约束,以及 NSIS 工具链的下载/缓存规则
+  (手工预置缓存会被 bundler 判定不完整并重建,网络不通时应设 `HTTPS_PROXY`);
+  另补 §4.1「构建完报路径」的校验与静默安装/卸载自检脚本、§5.1 构建产物落位表。
+
 ## [0.4.0] - 2026-09-12
 
 ### 安全

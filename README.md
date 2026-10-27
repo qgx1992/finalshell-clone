@@ -15,6 +15,9 @@
 - 目录列表、新建、重命名、删除(递归)
 - 拖拽式上传 / 下载(带实时进度条)
 - **双击远程文件直接编辑**(CodeMirror 语法高亮,保存即写回)
+- **右键一键打包**:在文件列表右键菜单对文件 / 目录(支持 Ctrl 多选、Shift 连选)
+  生成 `ZIP` 或 `TAR.GZ`,直接在服务器侧压缩,不经过本地中转;服务器缺少 `zip` 时
+  自动回落到本地 SFTP 流式打包,两者都带进度条
 
 ### 📊 服务器监控(无需安装服务端插件)
 - CPU / 内存 / 磁盘 / 网络实时图表(自绘 Canvas 折线图)
@@ -75,6 +78,7 @@
 | `term-data` | 后端读循环 | TerminalPanel | 终端输出(base64,批量) |
 | `term-exit` | 后端 | TerminalPanel | 连接状态变更 |
 | `sftp-progress` | 后端传输出流 | SftpPanel | 上传/下载进度(节流) |
+| `sftp-archive-progress` | 后端打包任务 | SftpPanel | 远程打包进度(百分比 + 已处理字节) |
 
 ## ⚡ 性能优化(2026-08)
 
@@ -223,7 +227,8 @@ finalshell-clone/
 │   │   ├── ssh/
 │   │   │   ├── manager.rs       # russh 会话管理 + 终端读循环 + 主机指纹校验
 │   │   │   ├── proxy.rs         # SOCKS5 / HTTP CONNECT 代理
-│   │   │   └── sftp.rs          # SFTP 文件操作(原子写入/原生递归删除)
+│   │   │   ├── sftp.rs          # SFTP 文件操作(原子写入/原生递归删除)
+│   │   │   └── archive.rs       # 远程打包(zip/tar.gz,服务器侧命令 + SFTP 流式回落)
 │   │   ├── security/
 │   │   │   ├── credentials.rs   # 系统凭据库封装
 │   │   │   └── known_hosts.rs   # TOFU 主机密钥校验

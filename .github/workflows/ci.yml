@@ -36,6 +36,9 @@ jobs:
       - name: 前端类型检查
         run: npm run typecheck
 
+      - name: 版本号一致性校验
+        run: npm run check:versions
+
       - name: 后端编译检查
         run: cargo check --all-targets
         working-directory: src-tauri
@@ -59,6 +62,75 @@ jobs:
 
       - name: 前端构建
         run: npm run build
+
+  # 端到端冒烟测试：真实启动应用，用 WebView2 CDP 驱动 UI。
+  # 需要图形会话，GitHub 的 windows-latest 自带桌面与 WebView2 Runtime，可以跑。
+  # 先用 continue-on-error 观察稳定性；稳定后把下面这一行删掉即可变成阻塞门禁。
+  e2e:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装 Rust(MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: 缓存 Rust 构建产物
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: e2e
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建前端(产物会被打进应用)
+        run: npm run build
+
+      - name: 安装 e2e 依赖
+        run: pip install websocket-client
+
+      - name: 构建带调试端口的应用(e2e 专用配置)
+        working-directory: src-tauri
+        # 注意:不能用 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 环境变量 —— wry 会显式传
+        # AdditionalBrowserArguments，把环境变量覆盖掉，CDP 端口起不来。
+        # 所以这里用 tauri.e2e.conf.json 覆盖窗口配置，把 --remote-debugging-port 编译进去。
+        run: npx tauri build --debug --no-bundle --config tauri.e2e.conf.json
+
+      - name: 启动应用并跑冒烟测试
+        shell: pwsh
+        run: |
+          $exe = 'src-tauri\target\debug\finalshell-x.exe'
+          if (-not (Test-Path $exe)) { throw "找不到可执行文件: $exe" }
+          $proc = Start-Process -FilePath $exe -PassThru
+          Write-Host "app pid=$($proc.Id)"
+          try {
+            # 脚本自己会等 CDP 端口就绪(默认 30s)
+            python e2e_test.py --port 9222
+            if ($LASTEXITCODE -ne 0) { throw "e2e 冒烟测试失败(exit=$LASTEXITCODE)" }
+          } finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 收集日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            ~/AppData/Local/com.finalshell.clone/logs/**
+          if-no-files-found: ignore
 
   audit:
     runs-on: windows-latest

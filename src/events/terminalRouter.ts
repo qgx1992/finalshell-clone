@@ -135,3 +135,57 @@ export function onSftpProgress(sessionId: number, handler: SftpProgressHandler):
     if (current.size === 0) sftpHandlers.delete(sessionId);
   };
 }
+
+/**
+ * 打包(生成压缩包)进度。
+ *
+ * 独立一条事件通道,和传输进度分开:
+ * 打包是「一个任务 + 总条目数」,不会像上传下载那样并发多条,
+ * 复用 sftp-progress 会让两者互相覆盖。
+ */
+/** [sessionId, 百分比, 已处理, 总量, 阶段, 单位("bytes" | "files")] */
+export type ArchiveProgressHandler = (
+  payload: [number, number, number, number, string, string]
+) => void;
+
+const archiveHandlers = new Map<number, Set<ArchiveProgressHandler>>();
+let archiveStarted = false;
+let archiveStartPromise: Promise<void> | null = null;
+
+export function ensureArchiveRouter(): Promise<void> {
+  if (archiveStarted) return Promise.resolve();
+  if (archiveStartPromise) return archiveStartPromise;
+  archiveStartPromise = (async () => {
+    await listen<[number, number, number, number, string, string]>("sftp-archive-progress", (e) => {
+      const [sid] = e.payload;
+      const handlers = archiveHandlers.get(sid);
+      if (!handlers) return;
+      for (const h of handlers) {
+        try {
+          h(e.payload);
+        } catch {
+          // 忽略单个订阅者的异常
+        }
+      }
+    });
+    archiveStarted = true;
+    archiveStartPromise = null;
+  })();
+  return archiveStartPromise;
+}
+
+export function onArchiveProgress(sessionId: number, handler: ArchiveProgressHandler): () => void {
+  void ensureArchiveRouter();
+  let set = archiveHandlers.get(sessionId);
+  if (!set) {
+    set = new Set();
+    archiveHandlers.set(sessionId, set);
+  }
+  set.add(handler);
+  return () => {
+    const current = archiveHandlers.get(sessionId);
+    if (!current) return;
+    current.delete(handler);
+    if (current.size === 0) archiveHandlers.delete(sessionId);
+  };
+}

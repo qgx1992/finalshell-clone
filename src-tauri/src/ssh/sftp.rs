@@ -226,7 +226,7 @@ async fn delete_dir_recursive(
 }
 
 /// 拼接远程路径,避免出现双斜杠
-fn join_remote(parent: &str, name: &str) -> String {
+pub(crate) fn join_remote(parent: &str, name: &str) -> String {
     if parent.ends_with('/') {
         format!("{parent}{name}")
     } else {

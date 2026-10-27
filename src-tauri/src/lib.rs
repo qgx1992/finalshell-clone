@@ -14,6 +14,7 @@ use ssh::manager::{
     close_session_channel, connect_server, disconnect, exec_command, forget_host_key,
     list_sessions, resize_terminal, trusted_host_fingerprint, write_terminal,
 };
+use ssh::archive::{sftp_archive_preview, sftp_create_archive};
 use ssh::sftp::{
     list_dir, sftp_delete, sftp_download, sftp_mkdir, sftp_pwd, sftp_read_file, sftp_rename,
     sftp_upload, sftp_write_file,
@@ -113,6 +114,9 @@ pub fn run() {
             sftp_read_file,
             sftp_write_file,
             sftp_pwd,
+            // 压缩包
+            sftp_archive_preview,
+            sftp_create_archive,
             // 监控
             monitor::monitor_poll,
         ])

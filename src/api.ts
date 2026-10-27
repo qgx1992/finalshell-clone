@@ -137,6 +137,44 @@ export const sftpWriteFile = (id: number, remotePath: string, contentB64: string
   call<void>("sftp_write_file", { id, remotePath, contentB64 });
 export const sftpPwd = (id: number) => call<string>("sftp_pwd", { id });
 
+// ---------- 压缩包 ----------
+/** 支持的归档格式 */
+export type ArchiveFormat = "zip" | "tar.gz" | "tar.zst";
+
+export interface ArchiveInfo {
+  /** 归档文件的远程绝对路径 */
+  path: string;
+  /** 归档文件名 */
+  name: string;
+  /** 归档字节数 */
+  size: number;
+  /** 打包的顶层条目数 */
+  entries: number;
+  /** 实际写进归档的文件数 */
+  files: number;
+  /** 打包方式:shell = 服务器端 zip/tar(快),sftp = 客户端流式(兼容) */
+  method: string;
+  /** 耗时(毫秒) */
+  elapsed_ms: number;
+  /** 回落原因(服务器端不可用时自动切流式打包) */
+  fallback_reason: string | null;
+}
+
+export interface ArchiveTarget {
+  source: string;
+  name: string;
+  candidates: string[];
+  exists: boolean;
+}
+
+/** 预览:默认会生成什么文件名、目标目录是否已有同名文件 */
+export const sftpArchivePreview = (id: number, paths: string[], format: ArchiveFormat) =>
+  call<ArchiveTarget[]>("sftp_archive_preview", { id, paths, format });
+
+/** 在服务器上生成压缩包(返回归档信息) */
+export const sftpCreateArchive = (id: number, paths: string[], format: ArchiveFormat) =>
+  call<ArchiveInfo>("sftp_create_archive", { id, paths, format });
+
 // ---------- 监控 ----------
 export const monitorPoll = (id: number) =>
   call<MonitorSnapshot>("monitor_poll", { id });

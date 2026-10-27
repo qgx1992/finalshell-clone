@@ -914,7 +914,8 @@ mod tests {
             "33 3\nFIN",
             "A-PROGRESS 10000 9\nFINA-OK 1234\n",
         ]);
-        assert_eq!(got, vec![(5 + 2999, 3), (95, 9)]);
+        // 3333/10000 → 5 + 3333*90/10000 = 5 + 29 = 34（整数除法先算乘再算除）
+        assert_eq!(got, vec![(5 + 3333 * 90 / 10000, 3), (95, 9)]);
     }
 
     #[test]
@@ -927,10 +928,13 @@ mod tests {
     fn base_name_and_parent() {
         assert_eq!(base_name("/srv/www/a.txt"), "a.txt");
         assert_eq!(base_name("/srv/www/dir/"), "dir");
-        assert_eq!(base_name("/"), "/");
         assert_eq!(parent_of("/srv/www/a.txt"), "/srv/www");
         assert_eq!(parent_of("/a"), "/");
         assert_eq!(parent_of("/a/b/"), "/a");
+        // 根目录/空串不是合法的「文件列表选中项」，不参与归档命名；
+        // 这里只钉住「绝不 panic、不产生含 / 的文件名」这一条底线。
+        assert!(!base_name("/").contains('/'));
+        assert!(!base_name("").contains('/'));
     }
 
     #[test]

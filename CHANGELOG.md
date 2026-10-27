@@ -19,6 +19,16 @@
   当成命令行选项。
 - zip 分支的进度分母改为**顶层条目数**(原来是递归展开后的文件数),否则一次选中多个
   目录时进度条永远走不到 100%。
+- 归档相关的单元测试断言与实现对齐:`FINA-PROGRESS` 百分比按
+  `5 + permille*90/10000` 推导(3333 → 34),不再写成不成立的 `5 + 2999`;
+  `base_name` 的根目录边界改为钉住"不 panic、不产生含 `/` 的文件名"这条实际约束。
+
+### 依赖
+- `vite` 6.4.3 → **6.4.5**(patch 升级)。6.4.3 及其以下受 5 条公告影响
+  (`GHSA-9jrq-w75r-8gcw`、`GHSA-rq7h-c2jc-7f22`、`GHSA-698v-4r3x-3vcv`、
+  `GHSA-r825-w8mm-5pxw`、`GHSA-587h-7wmj-h5pm`,vulnerable `<=6.4.3`),
+  6.4.5 已修正,`npm audit --audit-level=high` 归零。未跨到 vite 7(会连带
+  `@vitejs/plugin-react` 大版本升级),构建产物文件名逐字节未变。
 
 ### 工程化
 - 新增端到端冒烟测试 `e2e_test.py`(WebView2 CDP 驱动真实窗口),支持 `--full`

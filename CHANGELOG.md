@@ -3,7 +3,9 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的格式,
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.4.1] - 2026-10-27
+
+一个小版本:SFTP 右键一键打包 + 文件多选,并把 CI 的依赖审计从「一直红」修到全绿。
 
 ### 新增
 - **SFTP 右键一键打包**:文件列表右键菜单可对文件 / 目录生成 `ZIP` 或 `TAR.GZ`。
@@ -46,7 +48,9 @@
   跑需要 SSH 测试机的完整流程;CI 新增 `e2e` job 自动执行冒烟。
 - CI 新增**版本号一致性校验**(`npm run check:versions`),覆盖 `package.json` /
   `Cargo.toml` / `tauri.conf.json`。
-- `src/generated/` 补齐 `ArchiveFormat.ts` / `ArchiveInfo.ts`(ts-rs),与 Rust 类型同步。
+- `src/generated/` 补齐 `ArchiveFormat.ts` / `ArchiveInfo.ts` / `ArchiveTarget.ts`(ts-rs),
+  与 Rust 类型同步。`ArchiveTarget.ts` 曾漏提交,靠临时 `workflow_dispatch` 工作流在
+  `windows-latest` 上取回权威生成结果后补齐。
 - `.gitignore` 补上 `*.zip` / `*.tar.gz` / `*.tar.zst` / `*.tmp` / `screenshot-*.png`
   等本地打包与调试产物;清理了 `src-tauri/target`、`src-tauri/target-msvc` 中的
   构建垃圾(约 34.6 GB)与 `__pycache__`。
@@ -169,6 +173,8 @@
 - 效率工具:快捷命令面板、10 套终端配色、深 / 浅主题、字号调节、最近连接、服务器分组。
 - 打包:NSIS 安装包,WebView2 依赖自检与故障排查文档。
 
+[0.4.1]: https://github.com/qgx1992/finalshell-clone/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/qgx1992/finalshell-clone/releases/tag/v0.4.0
 [0.3.5]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.2...v0.3.4
 [0.3.2]: https://github.com/qgx1992/finalshell-clone/compare/v0.3.1...v0.3.2

@@ -1,6 +1,37 @@
 # FinalShell-X 🖥️
 
+[![CI](https://github.com/qgx1992/finalshell-clone/actions/workflows/ci.yml/badge.svg)](https://github.com/qgx1992/finalshell-clone/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/qgx1992/finalshell-clone?label=release)](https://github.com/qgx1992/finalshell-clone/releases/latest)
+
 基于 **Tauri 2 + Rust + React** 复刻的 FinalShell —— SSH 终端 / SFTP 文件管理 / 服务器监控一体化工具。
+
+## 📥 下载安装
+
+**[⬇️ 最新版 Release](https://github.com/qgx1992/finalshell-clone/releases/latest)** —— 两种形态:
+
+| 资产 | 用途 |
+|---|---|
+| `FinalShell-X_x.y.z_x64-setup.exe` | NSIS 安装包,装到 `%LOCALAPPDATA%\FinalShell-X`,带开始菜单/卸载项 |
+| `FinalShell-X_x.y.z_x64-portable.zip` | 便携包,解压后双击 `finalshell-x.exe` 直接跑,不写注册表 |
+
+(Windows x64,需要 WebView2 运行时;Win10/11 已自带。)
+
+```powershell
+# 直链下载(把版本号换成你要的)
+$v = '0.4.1'
+curl.exe -L -o FinalShell-X_${v}_x64-setup.exe `
+  "https://github.com/qgx1992/finalshell-clone/releases/download/v$v/FinalShell-X_${v}_x64-setup.exe"
+
+# 校验
+Get-FileHash .\FinalShell-X_0.4.1_x64-setup.exe -Algorithm SHA256
+# 0.4.1 setup   => 53534A1B8C3A78F0CEE33B0793D19A5EC27E29FF8EE4CAC2890A97FEA39497DB
+# 0.4.1 portable=> B7EA69EB8E8CD3FA87456AD5ED755FA93DB0EA6E9C7D67F259C9C57F9CF31671
+```
+
+- 静默安装:`FinalShell-X_0.4.1_x64-setup.exe /S`(可用 `/D=安装目录`,且必须是最后一个参数)
+- 静默卸载:`"<安装目录>\uninstall.exe" /S`
+- 从旧版升级直接覆盖安装即可:服务器列表、凭据库(Windows 凭据管理器里的条目)与
+  `known_hosts` 都保留,配置目录不变(`com.finalshell.clone`)
 
 ## ✨ 已实现功能
 

@@ -159,3 +159,5 @@ jobs:
       - name: 后端依赖审计
         run: cargo audit
         working-directory: src-tauri
+        # 忽略名单在 src-tauri/.cargo/audit.toml,每条都写明"为什么本程序不可达"。
+        # 名单外的任何新公告仍会让这一步失败(但整个 job 是 continue-on-error,不阻塞主构建)。

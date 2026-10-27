@@ -1054,7 +1054,10 @@ mod tests {
         let f = std::fs::File::open(&path).unwrap();
         let mut archive = zip::ZipArchive::new(f).unwrap();
         let mut names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| {
+                // zip 9 起 `name()` 返回 Result<Cow<str>, ZipError>;旧版是 &str
+                archive.by_index(i).unwrap().name().unwrap().to_string()
+            })
             .collect();
         names.sort();
         assert_eq!(names, vec!["d/".to_string(), "d/a.txt".to_string()]);

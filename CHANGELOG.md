@@ -24,6 +24,17 @@
   `base_name` 的根目录边界改为钉住"不 panic、不产生含 `/` 的文件名"这条实际约束。
 
 ### 依赖
+- `zip` 2.6.1 → **9.1.2**。2.6.1 受 3 条公告影响(`RUSTSEC-2026-0367` 解压时保留
+  SUID/SGID、`RUSTSEC-2026-0368` 解压符号链接逃逸、`RUSTSEC-2026-0369` 通过符号链接
+  施加权限,其中一条 CVSS 9.1)。本程序只用 `ZipWriter` **写**压缩包、不调用
+  `extract()`,但仍按"能升就升"直接跨大版本升级;唯一 API 变化是
+  `ZipEntry::name()` 返回 `Result<Cow<str>, ZipError>`,单测里补了一次 `unwrap()`。
+- `crypto-bigint` 0.7.5 → **0.7.10**、`ctutils` 0.4.2 → **0.4.6**(`RUSTSEC-2026-0387`、
+  `RUSTSEC-2026-0385` 均已修复)。随之 `cargo audit` 的漏洞数从 8 条降到 2 条。
+- 新增 `src-tauri/.cargo/audit.toml`,把剩下 2 条**上游无修复版本且本程序不可达**的
+  公告显式忽略,并在文件里逐条写明不可达理由(`rsa` 的 Marvin Attack 只影响私钥解密
+  的计时侧信道,本程序只用 RSA 做 SSH 客户端签名;`crypto-bigint` 0.5.x 遗留项同理)。
+  新增公告不在忽略列表内,CI 仍会报警。
 - `vite` 6.4.3 → **6.4.5**(patch 升级)。6.4.3 及其以下受 5 条公告影响
   (`GHSA-9jrq-w75r-8gcw`、`GHSA-rq7h-c2jc-7f22`、`GHSA-698v-4r3x-3vcv`、
   `GHSA-r825-w8mm-5pxw`、`GHSA-587h-7wmj-h5pm`,vulnerable `<=6.4.3`),
